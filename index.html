@@ -43,6 +43,9 @@
   .chipx:hover { background: #fdecea; transform: none; }
   .editBtn { border: none; background: transparent; padding: 0 2px; font-size: 12px; cursor: pointer; }
   .editBtn:hover { background: #e6f6f7; transform: none; }
+  table.data td.editable { cursor: pointer; }
+  table.data td.editable:hover { background: #eaf7f7; box-shadow: inset 0 0 0 2px #7fb6c4; }
+  table.data td.man { background: #fff3d6; font-weight: 600; }
   .tableScroll { overflow: auto; max-height: 72vh; border-radius: 10px; }
   table.data { border-collapse: collapse; width: 100%; font-size: 12.5px; background: #fff; }
   table.data th, table.data td { border: 1px solid #c3d8dd; padding: 4px 7px; vertical-align: top; }
@@ -57,6 +60,19 @@
   table.foot td { padding: 1px 6px; white-space: nowrap; }
   #printTitle { display: none; }
   .note { font-size: 12px; margin-top: 10px; color: #54707c; }
+  /* ---------- dialog edit ---------- */
+  #editOverlay { position: fixed; inset: 0; background: rgba(5, 30, 40, .5); backdrop-filter: blur(2px);
+                 display: none; align-items: center; justify-content: center; z-index: 10000; }
+  .editCard { background: #fff; border-radius: 16px; padding: 22px 24px; width: 88%; max-width: 440px;
+              box-shadow: 0 18px 50px rgba(0, 0, 0, .35); animation: fadeUp .25s ease both; }
+  #editTitle { font-weight: bold; font-size: 16.5px; color: #083344; }
+  #editDesc { font-size: 13px; color: #54707c; margin: 6px 0 12px; white-space: pre-line; }
+  #editInput { width: 100%; font-size: 15px; padding: 9px 10px; border: 1.5px solid #b9d4da; border-radius: 9px; color: #10222b; }
+  #editInput:focus { outline: 2px solid #99dde3; border-color: #0e7490; }
+  #editErr { color: #b3261e; font-size: 13px; min-height: 16px; margin: 6px 0 0; }
+  .editBtns { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+  #editOk { background: #0e7490; color: #fff; }
+  #editOk:hover { background: #0a5c73; }
   /* ---------- animasi loading saat upload ---------- */
   #loadingOverlay { position: fixed; inset: 0; background: rgba(5, 30, 40, .55); backdrop-filter: blur(3px);
                     display: none; align-items: center; justify-content: center; z-index: 9999; }
@@ -78,6 +94,7 @@
   @media print {
     .noprint { display: none !important; }
     #loadingOverlay { display: none !important; }
+    #editOverlay { display: none !important; }
     body { background: #fff; color: #000; }
     .wrap { max-width: none; padding: 0; }
     .card { box-shadow: none; border: none; animation: none; }
@@ -91,6 +108,7 @@
     table.data tr.grp td { background: #d9d9d9; color: #000; }
     table.data tr.tot td { background: #f2f2f2; }
     table.data tr.chg td { background: #fff; }
+    table.data td.man { background: #fff; font-weight: normal; }
     table.data tbody tr:hover td { background: transparent; }
   }
 </style>
@@ -147,7 +165,7 @@
         <button type="button" id="btnPrint">🖨️ Cetak</button>
         <button type="button" id="btnExcel">⬇️ Unduh Excel</button>
       </div>
-      <p class="muted" style="margin:8px 0 0">Klik ✏️ pada nama obat untuk mengubah namanya — tersimpan di perangkat ini, berlaku di kedua sheet dan ikut di hasil cetak &amp; unduhan Excel. File yang di-upload tetap dicocokkan memakai nama asli dari daftar induk.</p>
+      <p class="muted" style="margin:8px 0 0">Klik ✏️ pada nama obat untuk mengubah namanya, dan klik sel nilai mana pun untuk mengubah datanya — perubahan tersimpan di perangkat ini sebagai "Edit manual" (ada di Riwayat Sinkronisasi, bisa dibatalkan dari sana). Nama hasil edit berlaku di kedua sheet dan ikut di hasil cetak &amp; unduhan Excel; file yang di-upload tetap dicocokkan memakai nama asli dari daftar induk.</p>
     </div>
 
     <div id="printTitle"></div>
@@ -155,6 +173,19 @@
     <p id="tblNote" class="note"></p>
     <div id="printFoot"></div>
     <p class="note noprint">Catatan: hasil sinkronisasi tersimpan di browser perangkat ini (bukan cloud), sama seperti situs laporan sebelumnya. Mode Berdampingan membandingkan satu kolom antara dua tanggal sinkronisasinya.</p>
+  </div>
+</div>
+
+<div id="editOverlay">
+  <div class="editCard">
+    <div id="editTitle"></div>
+    <p id="editDesc"></p>
+    <input type="text" id="editInput" autocomplete="off">
+    <p id="editErr"></p>
+    <div class="editBtns">
+      <button type="button" id="editCancel">Batal</button>
+      <button type="button" id="editOk">💾 Simpan</button>
+    </div>
   </div>
 </div>
 
@@ -521,18 +552,22 @@ function columnHistory(layers, sheetName) {
   return hist;
 }
 
-/* Nilai terkini per kolom: { canon -> { key -> {v, date} } } dan tanggal sinkron terakhir per kolom */
+/* Nilai terkini per kolom: { canon -> { idBaris -> {v, date, man} } } dan tanggal sinkron terakhir per kolom.
+   man = true bila nilai berasal dari layer edit manual. */
 function latestValues(layers, sheetName) {
   var hist = columnHistory(layers, sheetName);
   var latest = {}, lastDate = {};
-  Object.keys(hist).forEach(function (canon) {
-    var dates = Object.keys(hist[canon]).sort();
-    lastDate[canon] = dates[dates.length - 1];
-    var merged = {};
-    dates.forEach(function (d) {
-      Object.keys(hist[canon][d]).forEach(function (k) { merged[k] = { v: hist[canon][d][k], date: d }; });
+  var sorted = layers.slice().sort(function (a, b) { return (a.date < b.date ? -1 : a.date > b.date ? 1 : a.ts - b.ts); });
+  sorted.forEach(function (layer) {
+    var sh = null;
+    Object.keys(layer.sheets || {}).forEach(function (k) { if (normKey(k) === normKey(sheetName)) sh = layer.sheets[k]; });
+    if (!sh) return;
+    Object.keys(sh).forEach(function (canon) {
+      if (!latest[canon]) latest[canon] = {};
+      lastDate[canon] = layer.date;
+      var dst = latest[canon];
+      Object.keys(sh[canon]).forEach(function (k) { dst[k] = { v: sh[canon][k], date: layer.date, man: !!layer.manual }; });
     });
-    latest[canon] = merged;
   });
   return { latest: latest, lastDate: lastDate, hist: hist };
 }
@@ -588,14 +623,87 @@ if (typeof module !== 'undefined' && module.exports) {
     if (changed) save();
   })();
 
-  function editName(id) {
+  /* ---------- dialog edit di dalam halaman (pengganti window.prompt) ---------- */
+  var editResolve = null;
+  function showEditDialog(title, desc, initial, err) {
+    return new Promise(function (resolve) {
+      editResolve = resolve;
+      $('editTitle').textContent = title;
+      $('editDesc').textContent = desc;
+      $('editErr').textContent = err || '';
+      var inp = $('editInput');
+      inp.value = initial == null ? '' : String(initial);
+      $('editOverlay').style.display = 'flex';
+      setTimeout(function () { inp.focus(); inp.select(); }, 40);
+    });
+  }
+  function closeEditDialog(val) {
+    $('editOverlay').style.display = 'none';
+    if (editResolve) { var r = editResolve; editResolve = null; r(val); }
+  }
+
+  async function editName(id) {
     var rec = null;
     MASTER.sheets.forEach(function (s) { s.rows.forEach(function (r) { if (r.id === id) rec = r; }); });
     if (!rec) return;
-    var nv = prompt('Ubah nama obat — berlaku untuk sheet Kebutuhan & PAGU dan tersimpan di perangkat ini.\nNama asli dari daftar induk: ' + rec.name + '\n\nKosongkan lalu OK untuk kembali ke nama asli.', dispName(rec));
+    var nv = await showEditDialog('✏️ Ubah Nama Obat', 'Berlaku untuk sheet Kebutuhan & PAGU dan tersimpan di perangkat ini.\nNama asli dari daftar induk: ' + rec.name + '\nKosongkan untuk kembali ke nama asli.', dispName(rec));
     if (nv === null) return;
     nv = nv.trim();
     if (!nv || nv === rec.name) delete db.names[id]; else db.names[id] = nv;
+    save(); render();
+  }
+
+  /* ---------- edit manual nilai sel (tersimpan sebagai layer "Edit manual" hari ini) ---------- */
+  function manualLayerToday() {
+    var today = todayISO();
+    var layer = null;
+    db.layers.forEach(function (l) { if (l.manual && l.date === today) layer = l; });
+    if (!layer) {
+      layer = { id: 'M' + today, date: today, file: '✏️ Edit manual', ts: Date.now(), manual: true, sheets: {}, summary: {} };
+      db.layers.push(layer);
+    }
+    return layer;
+  }
+
+  async function editValue(id, canon) {
+    var sheet = masterSheet();
+    var rec = null;
+    sheet.rows.forEach(function (r) { if (r.id === id) rec = r; });
+    if (!rec) return;
+    var res = latestValues(db.layers, sheet.name);
+    fillNilai(res.latest);
+    var e = res.latest[canon] && res.latest[canon][id];
+    var cur = e ? e.v : '';
+    var vc = null;
+    valueCols(sheet).forEach(function (v) { if (v.canon === canon) vc = v; });
+    var label = vc ? vc.header : canon;
+    var err = '';
+    var initial = cur === '' || cur == null ? '' : String(cur);
+    var nv = null;
+    while (true) {
+      nv = await showEditDialog('✏️ Ubah ' + label, dispName(rec) + ' — sheet ' + sheet.name + '.\nTersimpan sebagai edit manual tanggal hari ini (lihat Riwayat Sinkronisasi untuk membatalkannya).\nKosongkan untuk menghapus edit manual pada sel ini.', initial, err);
+      if (nv === null) return;
+      nv = nv.trim();
+      if (nv && isNumColName(canon) && toNum(nv) == null) { err = 'Kolom ' + label + ' harus berupa angka. Contoh: 3500 atau 441,78.'; initial = nv; continue; }
+      break;
+    }
+    var layer = manualLayerToday();
+    if (!layer.sheets[sheet.name]) layer.sheets[sheet.name] = {};
+    if (!layer.summary[sheet.name]) layer.summary[sheet.name] = { matched: 0, unmatched: 0, cols: {}, ignored: [] };
+    if (!layer.sheets[sheet.name][canon]) layer.sheets[sheet.name][canon] = {};
+    var colMap = layer.sheets[sheet.name][canon];
+    if (!nv) {
+      delete colMap[id];
+    } else if (isNumColName(canon)) {
+      colMap[id] = toNum(nv);
+    } else {
+      colMap[id] = nv;
+    }
+    var cnt = Object.keys(colMap).length;
+    if (cnt) layer.summary[sheet.name].cols[canon] = cnt; else { delete layer.summary[sheet.name].cols[canon]; delete layer.sheets[sheet.name][canon]; }
+    if (!Object.keys(layer.sheets[sheet.name]).length) { delete layer.sheets[sheet.name]; delete layer.summary[sheet.name]; }
+    if (!Object.keys(layer.sheets).length) db.layers = db.layers.filter(function (l) { return l !== layer; });
+    else layer.ts = Date.now();
     save(); render();
   }
 
@@ -764,6 +872,7 @@ if (typeof module !== 'undefined' && module.exports) {
     var html = '<table class="data"><thead>' + head1 + head2 + '</thead><tbody>';
     var sums = {};
     var anyComputed = false;
+    var anyMan = false;
     var aoa = [];
     sheet.titles.forEach(function (t) { aoa.push([t]); });
     aoa.push([]);
@@ -799,7 +908,9 @@ if (typeof module !== 'undefined' && module.exports) {
       vcols.forEach(function (vc) {
         var e = lv[vc.canon] && lv[vc.canon][rec.id];
         if (e && e.computed) anyComputed = true;
-        html += '<td class="' + (isNumColName(vc.header) ? 'num' : '') + '">' + (e ? esc(fmtNum(e.v)) : '') + '</td>';
+        if (e && e.man) anyMan = true;
+        var cls = (isNumColName(vc.header) ? 'num ' : '') + 'editable' + (e && e.man ? ' man' : '');
+        html += '<td class="' + cls + '" data-editval="' + rec.id + '|' + esc(vc.canon) + '" title="Klik untuk mengubah nilai">' + (e ? esc(fmtNum(e.v)) : '') + '</td>';
         if (!e) xrow.push('');
         else { var xn = isNumColName(vc.header) ? toNum(e.v) : null; xrow.push(xn != null ? xn : e.v); }
       });
@@ -809,9 +920,18 @@ if (typeof module !== 'undefined' && module.exports) {
     html += '</tbody></table>';
     exportData = { filename: 'Data-Perencanaan-' + sheet.name + '-Terkini.xlsx', sheetName: sheet.name, aoa: aoa };
     $('tableWrap').innerHTML = html;
-    $('tblNote').textContent = anyComputed ? 'Sebagian NILAI KEBUTUHAN adalah hasil hitungan otomatis (kebutuhan × harga satuan) karena kolom NILAI KEBUTUHAN belum pernah disinkronkan untuk barang itu.' : '';
+    var notes = [];
+    if (anyComputed) notes.push('Sebagian NILAI KEBUTUHAN adalah hasil hitungan otomatis (kebutuhan × harga satuan) karena kolom NILAI KEBUTUHAN belum pernah disinkronkan untuk barang itu.');
+    if (anyMan) notes.push('Sel berwarna krem adalah hasil edit manual (ada di Riwayat Sinkronisasi sebagai "Edit manual").');
+    $('tblNote').textContent = notes.join(' ');
     Array.prototype.forEach.call(document.querySelectorAll('[data-edit]'), function (b) {
       b.addEventListener('click', function () { editName(parseInt(b.getAttribute('data-edit'), 10)); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-editval]'), function (td) {
+      td.addEventListener('click', function () {
+        var parts = td.getAttribute('data-editval').split('|');
+        editValue(parseInt(parts[0], 10), parts.slice(1).join('|'));
+      });
     });
     renderFooter(sheet);
   }
@@ -980,6 +1100,13 @@ if (typeof module !== 'undefined' && module.exports) {
     $('inSearch').addEventListener('input', function () { ui.q = $('inSearch').value; applyFilter(); });
     $('chkChanged').addEventListener('change', function () { ui.onlyChanged = $('chkChanged').checked; applyFilter(); });
     $('btnPrint').addEventListener('click', function () { window.print(); });
+    $('editOk').addEventListener('click', function () { closeEditDialog($('editInput').value); });
+    $('editCancel').addEventListener('click', function () { closeEditDialog(null); });
+    $('editInput').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') closeEditDialog($('editInput').value);
+      else if (ev.key === 'Escape') closeEditDialog(null);
+    });
+    $('editOverlay').addEventListener('click', function (ev) { if (ev.target === $('editOverlay')) closeEditDialog(null); });
     $('btnExcel').addEventListener('click', function () {
       var wbx = XLSX.utils.book_new();
       if (ui.mode === 'latest') {
