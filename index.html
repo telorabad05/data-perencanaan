@@ -171,7 +171,7 @@
         <option value="all">Semua sheet</option>
       </select>
     </div>
-    <p class="muted" style="margin:8px 0 0">Nama barang &amp; kategori barang mengikuti daftar induk dan <b>tidak berubah</b>. File yang di-upload boleh berisi kolom nilai apa saja — HARGA, STOK AWAL, PENERIMAAN (Jumlah/Harga), PEMAKAIAN (Jumlah/Harga), STOK OPNAME per depo (IRD, PCC, PJT, KIA, TPN, ICU, RIA, BPJS RAJAL, COT, Gudang) — tiap kolom bisa di-upload tersendiri; hanya kolom yang terisi yang disinkronkan, dicocokkan menurut nama barang. Sel yang kosong di file berarti tidak ada pembaruan untuk sel itu. File ekspor dari sistem lain (misalnya Laporan Stok Opname FIFO) juga bisa langsung di-upload — kolom dikenali dari nama kolomnya, bukan posisinya, dan nama barang dicocokkan walau ada akhiran seperti "Ecat"/"Ekse".</p>
+    <p class="muted" style="margin:8px 0 0">Nama barang &amp; kategori barang mengikuti daftar induk dan <b>tidak berubah</b>. File yang di-upload boleh berisi kolom nilai apa saja — HARGA, STOK AWAL, PENERIMAAN (Jumlah/Harga), PEMAKAIAN (Jumlah/Harga), STOK OPNAME per depo (IRD, PCC, PJT, KIA, TPN, ICU, RIA, BPJS RAJAL, COT, Gudang) — tiap kolom bisa di-upload tersendiri; hanya kolom yang terisi yang disinkronkan, dicocokkan menurut nama barang. <b>Kolom Harga yang berpasangan dengan Jumlah (Penerimaan Harga, Pemakaian Harga, Harga opname tiap depo) tidak perlu diisi</b> — otomatis dihitung dari Jumlah × Harga satuan, jadi cukup masukkan data Jumlah saja. Sel yang kosong di file berarti tidak ada pembaruan untuk sel itu. File ekspor dari sistem lain (misalnya Laporan Stok Opname FIFO) juga bisa langsung di-upload — kolom dikenali dari nama kolomnya, bukan posisinya, dan nama barang dicocokkan walau ada akhiran seperti "Ecat"/"Ekse".</p>
     <div id="upStatus"></div>
   </div>
 
@@ -596,6 +596,15 @@ function assignRowKeys(rows) {
    Pencocokan baris: (1) kunci persis kelompok+nama / nama+urutan,
    (2) kunci longgar normMatch bila unik di kedua sisi.
    Sel kosong di file unggahan = tidak ada pembaruan untuk sel itu. */
+/* Kolom HARGA pasangan dari kolom JUMLAH: 'PENERIMAAN HARGA' -> 'PENERIMAAN JUMLAH',
+   'OPNAME IRD HARGA' -> 'OPNAME IRD JUMLAH', dst. Mengembalikan nama kolom jumlah
+   pasangannya, atau null bila canon bukan kolom harga turunan. Kolom 'HARGA' satuan
+   sendiri dan 'HARGA SATUAN' bukan turunan. */
+function derivedQtyCanon(canon) {
+  if (!/ HARGA$/.test(canon)) return null;
+  return canon.slice(0, canon.length - 'HARGA'.length) + 'JUMLAH';
+}
+
 function syncSheet(masterSheet, parsedSheet) {
   assignRowKeys(masterSheet.rows);
   assignRowKeys(parsedSheet.rows);
@@ -628,6 +637,9 @@ function syncSheet(masterSheet, parsedSheet) {
     var canon = canonCol(h);
     if (IDENTITY[canon]) return;
     if (!masterCols[canon]) { ignoredCols.push(h); return; }
+    /* kolom harga turunan tidak disimpan: nilainya selalu dihitung dari Jumlah x Harga satuan */
+    var dq = derivedQtyCanon(canon);
+    if (dq && masterCols[dq]) { ignoredCols.push(h); return; }
     var vals = {};
     pairs.forEach(function (p) {
       var v = p.u.cells[ci];
@@ -681,21 +693,59 @@ function latestValues(layers, sheetName) {
   return { latest: latest, lastDate: lastDate, hist: hist };
 }
 
-/* NILAI KEBUTUHAN dihitung dari kebutuhan x harga bila belum pernah disinkronkan */
-function fillNilai(latest) {
-  var qty = latest['KEBUTUHAN SESUAI PAGU'], harga = latest['HARGA SATUAN'];
-  if (!qty || !harga) return;
-  if (!latest['NILAI KEBUTUHAN']) latest['NILAI KEBUTUHAN'] = {};
-  var nilai = latest['NILAI KEBUTUHAN'];
-  Object.keys(qty).forEach(function (k) {
-    if (nilai[k] != null) return;
-    var q = toNum(qty[k].v), p = harga[k] ? toNum(harga[k].v) : null;
-    if (q != null && p != null) nilai[k] = { v: q * p, date: qty[k].date, computed: true };
+/* Kolom HARGA pasangan (Penerimaan/Pemakaian/Opname ... Harga) selalu dihitung
+   dari Jumlah x Harga satuan — data harga tidak perlu dimasukkan. Menggantikan
+   nilai tersimpan mana pun (termasuk data lama) bila Jumlah dan Harga satuan ada. */
+function fillDerivedPrices(latest) {
+  var satuan = latest['HARGA'];
+  if (!satuan) return;
+  Object.keys(latest).forEach(function (canon) {
+    var qtyCanon = derivedQtyCanon(canon);
+    if (!qtyCanon) return;
+    var qty = latest[qtyCanon];
+    if (!qty) return;
+    if (!latest[canon]) latest[canon] = {};
+    var dst = latest[canon];
+    Object.keys(qty).forEach(function (k) {
+      var q = toNum(qty[k].v), p = satuan[k] ? toNum(satuan[k].v) : null;
+      if (q != null && p != null) dst[k] = { v: q * p, date: qty[k].date, computed: true };
+    });
+  });
+  /* kolom harga turunan yang kolom jumlahnya tidak ikut termuat di latest
+     (mis. hanya kolom harganya yang pernah disinkronkan) tetap dibuat dari
+     pasangan jumlahnya bila jumlahnya ada di latest */
+  Object.keys(latest).forEach(function (canon) {
+    if (!/ JUMLAH$/.test(canon)) return;
+    var priceCanon = canon.slice(0, canon.length - 'JUMLAH'.length) + 'HARGA';
+    if (latest[priceCanon]) return;
+    var qty = latest[canon];
+    var dst = {};
+    var any = false;
+    Object.keys(qty).forEach(function (k) {
+      var q = toNum(qty[k].v), p = satuan[k] ? toNum(satuan[k].v) : null;
+      if (q != null && p != null) { dst[k] = { v: q * p, date: qty[k].date, computed: true }; any = true; }
+    });
+    if (any) latest[priceCanon] = dst;
   });
 }
 
+/* NILAI KEBUTUHAN dihitung dari kebutuhan x harga bila belum pernah disinkronkan */
+function fillNilai(latest) {
+  var qty = latest['KEBUTUHAN SESUAI PAGU'], harga = latest['HARGA SATUAN'];
+  if (qty && harga) {
+    if (!latest['NILAI KEBUTUHAN']) latest['NILAI KEBUTUHAN'] = {};
+    var nilai = latest['NILAI KEBUTUHAN'];
+    Object.keys(qty).forEach(function (k) {
+      if (nilai[k] != null) return;
+      var q = toNum(qty[k].v), p = harga[k] ? toNum(harga[k].v) : null;
+      if (q != null && p != null) nilai[k] = { v: q * p, date: qty[k].date, computed: true };
+    });
+  }
+  fillDerivedPrices(latest);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseSheetAOA: parseSheetAOA, buildCompare: buildCompare, countData: countData, toNum: toNum, normKey: normKey, normText: normText, fmtNum: fmtNum, fmtDiff: fmtDiff, fmtTanggal: fmtTanggal, canonCol: canonCol, isNumColName: isNumColName, assignRowKeys: assignRowKeys, syncSheet: syncSheet, columnHistory: columnHistory, latestValues: latestValues, fillNilai: fillNilai, normMatch: normMatch };
+  module.exports = { parseSheetAOA: parseSheetAOA, buildCompare: buildCompare, countData: countData, toNum: toNum, normKey: normKey, normText: normText, fmtNum: fmtNum, fmtDiff: fmtDiff, fmtTanggal: fmtTanggal, canonCol: canonCol, isNumColName: isNumColName, assignRowKeys: assignRowKeys, syncSheet: syncSheet, columnHistory: columnHistory, latestValues: latestValues, fillNilai: fillNilai, fillDerivedPrices: fillDerivedPrices, derivedQtyCanon: derivedQtyCanon, normMatch: normMatch };
 }
 </script>
 <script>/* Data Perencanaan Obat v2 — daftar induk tetap + sinkronisasi per kolom */
@@ -1024,6 +1074,10 @@ if (typeof module !== 'undefined' && module.exports) {
     var rec = null;
     sheet.rows.forEach(function (r) { if (String(r.id) === String(id)) rec = r; });
     if (!rec) return;
+    if (derivedQtyCanon(canon)) {
+      $('upStatus').textContent = 'Kolom ' + canon + ' dihitung otomatis (Jumlah × Harga satuan) — tidak perlu diisi manual. Cukup isi kolom Jumlah dan Harga satuannya.';
+      return;
+    }
     var res = latestValues(P().layers, sheet.name);
     fillNilai(res.latest);
     var e = res.latest[canon] && res.latest[canon][id];
@@ -1227,6 +1281,7 @@ if (typeof module !== 'undefined' && module.exports) {
     var html = '<table class="data"><thead>' + head1 + head2 + '</thead><tbody>';
     var sums = {};
     var anyComputed = false;
+    var anyDerived = false;
     var anyMan = false;
     var aoa = [];
     dispTitles(sheet).forEach(function (t) { aoa.push([t]); });
@@ -1266,9 +1321,10 @@ if (typeof module !== 'undefined' && module.exports) {
       vcols.forEach(function (vc) {
         var e = lv[vc.canon] && lv[vc.canon][rec.id];
         if (e && e.computed) anyComputed = true;
+        if (e && e.computed && derivedQtyCanon(vc.canon)) anyDerived = true;
         if (e && e.man) anyMan = true;
         var cls = (isNumColName(vc.header) ? 'num ' : '') + 'editable' + (e && e.man ? ' man' : '');
-        html += '<td class="' + cls + '" data-editval="' + rec.id + '|' + esc(vc.canon) + '" title="Klik untuk mengubah nilai">' + (e ? esc(fmtNum(e.v)) : '') + '</td>';
+        html += '<td class="' + cls + '" data-editval="' + rec.id + '|' + esc(vc.canon) + '" title="' + (derivedQtyCanon(vc.canon) ? 'Otomatis: Jumlah × Harga satuan' : 'Klik untuk mengubah nilai') + '">' + (e ? esc(fmtNum(e.v)) : '') + '</td>';
         if (!e) xrow.push('');
         else { var xn = isNumColName(vc.header) ? toNum(e.v) : null; xrow.push(xn != null ? xn : e.v); }
       });
@@ -1279,7 +1335,9 @@ if (typeof module !== 'undefined' && module.exports) {
     exportData = { filename: 'Data-Perencanaan-' + sheet.name + '-Terkini.xlsx', sheetName: sheet.name, aoa: aoa };
     $('tableWrap').innerHTML = html;
     var notes = [];
-    if (anyComputed) notes.push('Sebagian NILAI KEBUTUHAN adalah hasil hitungan otomatis (kebutuhan × harga satuan) karena kolom NILAI KEBUTUHAN belum pernah disinkronkan untuk barang itu.');
+    if (anyDerived) notes.push('Kolom Harga pasangan (Penerimaan, Pemakaian, dan Stok Opname per depo) dihitung otomatis = Jumlah × Harga satuan — cukup isi/upload kolom Jumlah saja.');
+    var anyNilai = lv['NILAI KEBUTUHAN'] && Object.keys(lv['NILAI KEBUTUHAN']).some(function (k) { return lv['NILAI KEBUTUHAN'][k].computed; });
+    if (anyNilai) notes.push('Sebagian NILAI KEBUTUHAN adalah hasil hitungan otomatis (kebutuhan × harga satuan) karena kolom NILAI KEBUTUHAN belum pernah disinkronkan untuk barang itu.');
     if (anyMan) notes.push('Sel berwarna krem adalah hasil edit manual (ada di Riwayat Sinkronisasi sebagai "Edit manual").');
     $('tblNote').textContent = notes.join(' ');
     Array.prototype.forEach.call(document.querySelectorAll('[data-editname]'), function (td) {
@@ -1316,7 +1374,9 @@ if (typeof module !== 'undefined' && module.exports) {
     if (!dates.length) {
       exportData = null;
       $('printTitle').innerHTML = '';
-      $('tableWrap').innerHTML = '<p class="muted">Kolom ' + esc(ui.col) + ' belum pernah disinkronkan. Upload file Excel yang berisi kolom ini dulu.</p>';
+      $('tableWrap').innerHTML = derivedQtyCanon(ui.col)
+        ? '<p class="muted">Kolom ' + esc(ui.col) + ' dihitung otomatis (Jumlah × Harga satuan) sehingga tidak punya riwayat sinkronisasi sendiri — nilainya bisa dilihat di mode Data Terkini.</p>'
+        : '<p class="muted">Kolom ' + esc(ui.col) + ' belum pernah disinkronkan. Upload file Excel yang berisi kolom ini dulu.</p>';
       $('tblNote').textContent = '';
       $('selDateA').innerHTML = ''; $('selDateB').innerHTML = '';
       renderFooter(sheet);
@@ -1477,9 +1537,9 @@ if (typeof module !== 'undefined' && module.exports) {
       put(r, 3, hrg, sNum);
       put(r, 4, stokAwal, sNum);
       put(r, 5, penJ, sNum);
-      put(r, 6, penH, sNum);
+      if (penJ != null && hrg != null) put(r, 6, penJ * hrg, sNum, 'F' + R + '*D' + R); else put(r, 6, penH, sNum);
       put(r, 7, pemJ, sNum);
-      put(r, 8, pemH, sNum);
+      if (pemJ != null && hrg != null) put(r, 8, pemJ * hrg, sNum, 'H' + R + '*D' + R); else put(r, 8, pemH, sNum);
       put(r, 9, akhJ, sNum, 'E' + R + '+F' + R + '-H' + R);
       put(r, 10, akhH, sNum, 'J' + R + '*D' + R);
       put(r, 11, null, sNum);
