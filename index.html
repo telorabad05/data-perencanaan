@@ -593,6 +593,7 @@ if (typeof module !== 'undefined' && module.exports) {
   function handleFile(file) {
     if (!file) return;
     var date = $('inDate').value || todayISO();
+    var loadStart = Date.now();
     setLoading(true, 'Membaca file ' + file.name + ' …');
     file.arrayBuffer().then(async function (buf) {
       try {
@@ -651,7 +652,12 @@ if (typeof module !== 'undefined' && module.exports) {
       setLoading(true, 'Menyiapkan tampilan …');
       await nextFrame();
       render();
-      } finally { setLoading(false); }
+      } finally {
+        /* overlay tampil minimal 1,4 detik agar animasinya sempat terlihat */
+        var wait = 1400 - (Date.now() - loadStart);
+        if (wait > 0) await new Promise(function (r) { setTimeout(r, wait); });
+        setLoading(false);
+      }
     });
   }
 
@@ -839,6 +845,46 @@ if (typeof module !== 'undefined' && module.exports) {
     renderFooter(sheet);
   }
 
+  /* AOA sesuai format asli file perencanaan: judul, header, baris bagian,
+     baris TOTAL hanya berisi jumlah NILAI KEBUTUHAN */
+  function buildFormatAOA(sheet) {
+    var res = latestValues(db.layers, sheet.name);
+    fillNilai(res.latest);
+    var lv = res.latest;
+    var vcols = valueCols(sheet);
+    var nilaiCi = -1;
+    sheet.headers.forEach(function (h, ci) { if (canonCol(h) === 'NILAI KEBUTUHAN') nilaiCi = ci; });
+    var aoa = [];
+    sheet.titles.forEach(function (t) { aoa.push([t]); });
+    aoa.push([]);
+    aoa.push(sheet.headers.slice());
+    var sums = {};
+    sheet.rows.forEach(function (rec) {
+      if (rec.t === 'g') { sums = {}; aoa.push(['', normText(rec.name)]); return; }
+      if (rec.t === 'T') {
+        var trow = sheet.headers.map(function () { return ''; });
+        trow[1] = 'TOTAL';
+        if (nilaiCi >= 0 && sums['NILAI KEBUTUHAN'] != null) trow[nilaiCi] = sums['NILAI KEBUTUHAN'];
+        aoa.push(trow);
+        sums = {};
+        return;
+      }
+      vcols.forEach(function (vc) {
+        var e = lv[vc.canon] && lv[vc.canon][rec._key];
+        if (e) { var n = toNum(e.v); if (n != null) sums[vc.canon] = (sums[vc.canon] || 0) + n; }
+      });
+      var xrow = [rec.no, normText(rec.name), normText(rec.group)];
+      vcols.forEach(function (vc) {
+        var e = lv[vc.canon] && lv[vc.canon][rec._key];
+        if (!e) { xrow.push(''); return; }
+        var xn = isNumColName(vc.header) ? toNum(e.v) : null;
+        xrow.push(xn != null ? xn : e.v);
+      });
+      aoa.push(xrow);
+    });
+    return aoa;
+  }
+
   function renderFooter(sheet) {
     if (!sheet.footer || !sheet.footer.length) { $('printFoot').innerHTML = ''; return; }
     var html = '<table class="foot">';
@@ -894,11 +940,18 @@ if (typeof module !== 'undefined' && module.exports) {
     $('chkChanged').addEventListener('change', function () { ui.onlyChanged = $('chkChanged').checked; applyFilter(); });
     $('btnPrint').addEventListener('click', function () { window.print(); });
     $('btnExcel').addEventListener('click', function () {
-      if (!exportData) { alert('Belum ada tabel yang bisa diunduh.'); return; }
-      var wsx = XLSX.utils.aoa_to_sheet(exportData.aoa);
       var wbx = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wbx, wsx, String(exportData.sheetName).slice(0, 31));
-      XLSX.writeFile(wbx, exportData.filename);
+      if (ui.mode === 'latest') {
+        /* unduhan lengkap sesuai format asli: semua sheet dalam satu file */
+        MASTER.sheets.forEach(function (sh) {
+          XLSX.utils.book_append_sheet(wbx, XLSX.utils.aoa_to_sheet(buildFormatAOA(sh)), String(sh.name).slice(0, 31));
+        });
+        XLSX.writeFile(wbx, 'Data-Perencanaan-Obat.xlsx');
+      } else {
+        if (!exportData) { alert('Belum ada tabel yang bisa diunduh.'); return; }
+        XLSX.utils.book_append_sheet(wbx, XLSX.utils.aoa_to_sheet(exportData.aoa), String(exportData.sheetName).slice(0, 31));
+        XLSX.writeFile(wbx, exportData.filename);
+      }
     });
     render();
   }
