@@ -700,10 +700,11 @@ if (typeof module !== 'undefined' && module.exports) {
   try { var raw = localStorage.getItem(DBKEY); if (raw) db = JSON.parse(raw); } catch (e) { db = { plannings: [], activeId: null, groups: {} }; }
   if (!db || typeof db !== 'object') db = { plannings: [], activeId: null, groups: {} };
   if (!Array.isArray(db.plannings)) db.plannings = [];
-  /* migrasi bentuk awal v3 (layers di tingkat atas) menjadi perencanaan pertama */
-  if (Array.isArray(P().layers) || P().names || P().added) {
-    db.plannings.push({ id: 'P1', name: 'PERENCANAAN', layers: P().layers || [], names: P().names || {}, added: P().added || [], seq: P().seq || 0 });
-    delete P().layers; delete P().names; delete P().added; delete P().seq;
+  /* migrasi bentuk awal v3 (layers di tingkat atas) menjadi perencanaan pertama.
+     Blok ini memakai objek mentah db — P() belum bisa dipakai di sini. */
+  if (Array.isArray(db.layers) || db.names || db.added) {
+    db.plannings.push({ id: 'P1', name: 'PERENCANAAN', layers: db.layers || [], names: db.names || {}, added: db.added || [], seq: db.seq || 0 });
+    delete db.layers; delete db.names; delete db.added; delete db.seq;
   }
   if (!db.plannings.length) db.plannings.push({ id: 'P1', name: 'PERENCANAAN', layers: [], names: {}, added: [], seq: 0 });
   db.plannings.forEach(function (p) {
@@ -720,6 +721,27 @@ if (typeof module !== 'undefined' && module.exports) {
     return p || db.plannings[0];
   }
   if (!db.plannings.some(function (x) { return x.id === db.activeId; })) db.activeId = db.plannings[0].id;
+
+  /* Nama sheet induk berubah di v6 (PERENCANAAN OKT-DES 2026 -> PERENCANAAN):
+     sesuaikan kunci sheet pada layer lama agar nilainya tetap terbaca. */
+  (function remapSheetKeys() {
+    if (MASTER.sheets.length !== 1) return;
+    var target = MASTER.sheets[0].name;
+    var changed = false;
+    db.plannings.forEach(function (p) {
+      p.layers.forEach(function (l) {
+        ['sheets', 'summary'].forEach(function (field) {
+          var obj = l[field];
+          if (!obj) return;
+          Object.keys(obj).forEach(function (k) {
+            var known = MASTER.sheets.some(function (s) { return normKey(s.name) === normKey(k); });
+            if (!known) { obj[target] = obj[k]; delete obj[k]; changed = true; }
+          });
+        });
+      });
+    });
+    if (changed) save();
+  })();
 
   /* Daftar efektif = daftar induk tetap + obat tambahan buatan pengguna (P().added),
      disisipkan di akhir bagiannya (sebelum baris TOTAL bagian itu) pada kedua sheet. */
@@ -1100,8 +1122,8 @@ if (typeof module !== 'undefined' && module.exports) {
     if (!P().layers.length) { $('layerList').innerHTML = '<span class="muted">Belum ada data yang disinkronkan. Upload file Excel berisi kolom nilai untuk mulai.</span>'; return; }
     var sorted = P().layers.slice().sort(function (a, b) { return b.ts - a.ts; });
     $('layerList').innerHTML = sorted.map(function (l) {
-      var sums = Object.keys(l.summary).map(function (sn) {
-        var cs = Object.keys(l.summary[sn].cols);
+      var sums = Object.keys(l.summary || {}).map(function (sn) {
+        var cs = Object.keys((l.summary[sn] || {}).cols || {});
         return sn + ' (' + (cs.length ? cs.join(', ') : 'tidak ada kolom cocok') + ')';
       }).join(' · ');
       return '<div class="layer"><b>' + esc(fmtTanggal(l.date)) + '</b> — ' + esc(l.file) + '<br><span class="muted">' + esc(sums) + '</span> ' +
