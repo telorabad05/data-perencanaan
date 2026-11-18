@@ -753,9 +753,16 @@ if (typeof module !== 'undefined' && module.exports) {
     var group = $('addGroup').value.trim();
     if (!name) { $('addErr').textContent = 'Nama obat wajib diisi.'; return; }
     db.seq = (db.seq || 0) + 1;
-    var baseNo = 0;
-    MASTER.sheets[0].rows.forEach(function (r) { if (r.t === 'd' && r.no > baseNo) baseNo = r.no; });
-    db.added.push({ id: 'U' + db.seq, no: baseNo + db.seq, name: name, section: section, group: group });
+    /* Penomoran template berjalan per bagian: nomor obat tambahan = nomor terbesar
+       di bagian itu + jumlah obat tambahan yang sudah ada di bagian yang sama + 1. */
+    var secMax = 0, inSec = false;
+    MASTER.sheets[0].rows.forEach(function (r) {
+      if (r.t === 'g') inSec = normKey(r.name) === normKey(section);
+      else if (r.t === 'T') inSec = false;
+      else if (inSec && r.t === 'd') { var rn = toNum(r.no); if (rn != null && rn > secMax) secMax = rn; }
+    });
+    var sameSec = db.added.filter(function (a) { return normKey(a.section) === normKey(section); }).length;
+    db.added.push({ id: 'U' + db.seq, no: secMax + sameSec + 1, name: name, section: section, group: group });
     refreshEff();
     save();
     closeAddDialog();
