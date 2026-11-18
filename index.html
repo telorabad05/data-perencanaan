@@ -84,6 +84,18 @@
   #addErr { color: #b3261e; font-size: 13px; min-height: 16px; margin: 6px 0 0; }
   #addOk { background: #0e7490; color: #fff; }
   #addOk:hover { background: #0a5c73; }
+  /* ---------- dialog hapus baris + tanda obat baru ---------- */
+  #delOverlay { position: fixed; inset: 0; background: rgba(5, 30, 40, .5); backdrop-filter: blur(2px);
+                display: none; align-items: center; justify-content: center; z-index: 10000; }
+  #delTitle { font-weight: bold; font-size: 16.5px; color: #7a1d18; }
+  #delMsg { font-size: 13.5px; color: #33565f; margin: 8px 0 4px; white-space: pre-line; }
+  #delOk { background: #b3261e; color: #fff; }
+  #delOk:hover { background: #8f1d17; }
+  .newBadge { display: inline-block; background: #0e9f6e; color: #fff; font-size: 9.5px; font-weight: 700;
+              letter-spacing: .4px; padding: 1.5px 6px; border-radius: 99px; vertical-align: 2px; white-space: nowrap; }
+  .delBtn { border: none; background: transparent; cursor: pointer; font-size: 12.5px; padding: 0 2px;
+            opacity: .45; vertical-align: 1px; }
+  .delBtn:hover { opacity: 1; background: #fdecea; transform: none; }
   /* ---------- animasi loading saat upload ---------- */
   #loadingOverlay { position: fixed; inset: 0; background: rgba(5, 30, 40, .55); backdrop-filter: blur(3px);
                     display: none; align-items: center; justify-content: center; z-index: 9999; }
@@ -107,6 +119,8 @@
     #loadingOverlay { display: none !important; }
     #editOverlay { display: none !important; }
     #addOverlay { display: none !important; }
+    #delOverlay { display: none !important; }
+    .newBadge { display: none !important; }
     body { background: #fff; color: #000; }
     .wrap { max-width: none; padding: 0; }
     .card { box-shadow: none; border: none; animation: none; }
@@ -188,12 +202,13 @@
         <button type="button" id="btnExcel">⬇️ Unduh Excel</button>
         <button type="button" id="btnAdd">➕ Tambah Obat</button>
       </div>
-      <p class="muted" style="margin:8px 0 0">Klik nama obat untuk mengubah namanya, dan klik sel nilai mana pun untuk mengubah datanya — perubahan tersimpan di perangkat ini sebagai "Edit manual" (ada di Riwayat Sinkronisasi, bisa dibatalkan dari sana). Nama hasil edit ikut tampil di hasil cetak &amp; unduhan Excel; file yang di-upload tetap dicocokkan memakai nama asli dari daftar induk. Tombol ➕ Tambah Obat menambah obat baru ke bagian mana pun (mis. NARKOTIKA).</p>
+      <p class="muted" style="margin:8px 0 0">Klik nama obat untuk mengubah namanya, dan klik sel nilai mana pun untuk mengubah datanya — perubahan tersimpan di perangkat ini sebagai "Edit manual" (ada di Riwayat Sinkronisasi, bisa dibatalkan dari sana). Nama hasil edit ikut tampil di hasil cetak &amp; unduhan Excel; file yang di-upload tetap dicocokkan memakai nama asli dari daftar induk. Tombol ➕ Tambah Obat menambah obat baru ke bagian mana pun (mis. NARKOTIKA) — obat baru masuk sesuai urutan abjad, diberi tanda BARU, dan nomor urut menyesuaikan otomatis. Tombol 🗑 di samping nama obat menghapus baris itu dari perencanaan ini saja (obat induk bisa dikembalikan dari daftar "Obat terhapus" di bawah tabel).</p>
     </div>
 
     <div id="printTitle"></div>
     <div class="tableScroll" id="tableWrap"></div>
     <p id="tblNote" class="note"></p>
+    <div id="deletedWrap"></div>
     <div id="printFoot"></div>
     <p class="note noprint">Catatan: hasil sinkronisasi tersimpan di browser perangkat ini (bukan cloud), sama seperti situs laporan sebelumnya. Mode Berdampingan membandingkan satu kolom antara dua tanggal sinkronisasinya.</p>
   </div>
@@ -215,7 +230,7 @@
 <div id="addOverlay">
   <div class="editCard">
     <div class="addTitle">➕ Tambah Obat Baru</div>
-    <p class="addDesc">Obat masuk ke daftar pada bagian yang dipilih, di urutan terakhir bagian itu. Setelah ditambah, klik sel nilainya untuk mengisi data — atau upload file yang memuat nama itu agar tersinkron otomatis. Untuk menghapus obat tambahan, klik namanya lalu kosongkan namanya.</p>
+    <p class="addDesc">Obat masuk ke daftar pada bagian yang dipilih, <b>sesuai urutan abjad</b>, diberi tanda <b>BARU</b>, dan nomor urut menyesuaikan otomatis. Setelah ditambah, klik sel nilainya untuk mengisi data — atau upload file yang memuat nama itu agar tersinkron otomatis. Untuk menghapusnya, klik tombol 🗑 di samping namanya.</p>
     <label for="addName">Nama Obat</label>
     <input type="text" id="addName" autocomplete="off" placeholder="mis. Morfin Inj 10 mg/ml">
     <label for="addSection">Bagian / Kelompok Besar</label>
@@ -226,6 +241,17 @@
     <div class="editBtns">
       <button type="button" id="addCancel">Batal</button>
       <button type="button" id="addOk">💾 Tambahkan</button>
+    </div>
+  </div>
+</div>
+
+<div id="delOverlay">
+  <div class="editCard">
+    <div id="delTitle">🗑 Hapus Baris Obat</div>
+    <p id="delMsg"></p>
+    <div class="editBtns">
+      <button type="button" id="delCancel">Batal</button>
+      <button type="button" id="delOk">🗑 Hapus</button>
     </div>
   </div>
 </div>
@@ -703,14 +729,15 @@ if (typeof module !== 'undefined' && module.exports) {
   /* migrasi bentuk awal v3 (layers di tingkat atas) menjadi perencanaan pertama.
      Blok ini memakai objek mentah db — P() belum bisa dipakai di sini. */
   if (Array.isArray(db.layers) || db.names || db.added) {
-    db.plannings.push({ id: 'P1', name: 'PERENCANAAN', layers: db.layers || [], names: db.names || {}, added: db.added || [], seq: db.seq || 0 });
+    db.plannings.push({ id: 'P1', name: 'PERENCANAAN', layers: db.layers || [], names: db.names || {}, added: db.added || [], seq: db.seq || 0, deleted: [] });
     delete db.layers; delete db.names; delete db.added; delete db.seq;
   }
-  if (!db.plannings.length) db.plannings.push({ id: 'P1', name: 'PERENCANAAN', layers: [], names: {}, added: [], seq: 0 });
+  if (!db.plannings.length) db.plannings.push({ id: 'P1', name: 'PERENCANAAN', layers: [], names: {}, added: [], seq: 0, deleted: [] });
   db.plannings.forEach(function (p) {
     if (!Array.isArray(p.layers)) p.layers = [];
     if (!p.names || typeof p.names !== 'object') p.names = {};
     if (!Array.isArray(p.added)) p.added = [];
+    if (!Array.isArray(p.deleted)) p.deleted = [];
     if (!p.seq) p.seq = 0;
     if (!p.name) p.name = 'PERENCANAAN';
   });
@@ -749,21 +776,25 @@ if (typeof module !== 'undefined' && module.exports) {
   MASTER.sheets[0].rows.forEach(function (r) { if (r.t === 'g') SECTIONS.push(r.name); });
   function buildEff() {
     return MASTER.sheets.map(function (s) {
-      var rows = s.rows.slice();
+      /* baris induk yang dihapus dari perencanaan ini disaring keluar */
+      var rows = s.rows.filter(function (r) {
+        return !(r.t === 'd' && P().deleted.indexOf(r.id) >= 0);
+      });
       P().added.forEach(function (a) {
         var rec = { t: 'd', id: a.id, no: a.no, name: a.name, group: a.group, added: true, section: a.section };
-        var idx = -1;
+        /* sisipkan sesuai abjad di dalam bagiannya (sebelum baris pertama
+           yang namanya lebih besar; bila tidak ada, di akhir bagian itu) */
+        var start = -1, end = rows.length;
         for (var i = 0; i < rows.length; i++) {
-          if (rows[i].t === 'g' && normKey(rows[i].name) === normKey(a.section)) {
-            for (var j = i + 1; j < rows.length; j++) {
-              if (rows[j].t === 'T') { idx = j; break; }
-              if (rows[j].t === 'g') break;
-            }
-            if (idx < 0) idx = i + 1;
-            break;
-          }
+          if (rows[i].t === 'g' && normKey(rows[i].name) === normKey(a.section)) start = i;
+          else if (start >= 0 && (rows[i].t === 'g' || rows[i].t === 'T')) { end = i; break; }
         }
-        if (idx < 0) rows.push(rec); else rows.splice(idx, 0, rec);
+        if (start < 0) { rows.push(rec); return; }
+        var idx = end;
+        for (var j = start + 1; j < end; j++) {
+          if (rows[j].t === 'd' && normKey(rows[j].name) > normKey(a.name)) { idx = j; break; }
+        }
+        rows.splice(idx, 0, rec);
       });
       return { name: s.name, titles: s.titles, titleCol: s.titleCol, colOffset: s.colOffset, headers: s.headers, headerRows: s.headerRows, footer: s.footer, rows: rows };
     });
@@ -886,7 +917,7 @@ if (typeof module !== 'undefined' && module.exports) {
     if (nv === null) return;
     nv = nv.trim().toUpperCase();
     if (!nv) nv = 'PERENCANAAN';
-    var p = { id: 'P' + Date.now(), name: nv, layers: [], names: {}, added: [], seq: 0 };
+    var p = { id: 'P' + Date.now(), name: nv, layers: [], names: {}, added: [], seq: 0, deleted: [] };
     db.plannings.push(p);
     db.activeId = p.id;
     ui.col = ''; ui.dateA = ''; ui.dateB = '';
@@ -925,16 +956,9 @@ if (typeof module !== 'undefined' && module.exports) {
     var group = $('addGroup').value.trim();
     if (!name) { $('addErr').textContent = 'Nama obat wajib diisi.'; return; }
     P().seq = (P().seq || 0) + 1;
-    /* Penomoran template berjalan per bagian: nomor obat tambahan = nomor terbesar
-       di bagian itu + jumlah obat tambahan yang sudah ada di bagian yang sama + 1. */
-    var secMax = 0, inSec = false;
-    MASTER.sheets[0].rows.forEach(function (r) {
-      if (r.t === 'g') inSec = normKey(r.name) === normKey(section);
-      else if (r.t === 'T') inSec = false;
-      else if (inSec && r.t === 'd') { var rn = toNum(r.no); if (rn != null && rn > secMax) secMax = rn; }
-    });
-    var sameSec = P().added.filter(function (a) { return normKey(a.section) === normKey(section); }).length;
-    P().added.push({ id: 'U' + P().seq, no: secMax + sameSec + 1, name: name, section: section, group: group });
+    /* Posisi baris ditentukan buildEff (sesuai abjad di bagiannya) dan nomor
+       urut dihitung ulang saat tabel digambar — tidak disimpan di sini. */
+    P().added.push({ id: 'U' + P().seq, name: name, section: section, group: group });
     refreshEff();
     save();
     closeAddDialog();
@@ -944,7 +968,62 @@ if (typeof module !== 'undefined' && module.exports) {
     $('inSearch').value = name;
     ui.q = name;
     applyFilter();
-    $('upStatus').textContent = 'Obat ditambahkan ke perencanaan "' + P().name + '": ' + name + ' — bagian ' + section + ', posisi di akhir bagian itu (sebelum baris TOTAL-nya). Tabel kini menampilkan obat itu; kosongkan kolom Cari untuk melihat semua. Klik sel nilainya untuk mengisi data, atau klik namanya untuk mengubah/menghapus.';
+    $('upStatus').textContent = 'Obat ditambahkan ke perencanaan "' + P().name + '": ' + name + ' — masuk sesuai urutan abjad di bagian ' + section + ', diberi tanda BARU, dan nomor urut menyesuaikan otomatis. Tabel kini menampilkan obat itu; kosongkan kolom Cari untuk melihat semua. Klik sel nilainya untuk mengisi data; tombol 🗑 di samping namanya untuk menghapus baris.';
+  }
+
+  /* ---------- hapus 1 baris obat dari perencanaan ini ---------- */
+  var delCtx = null;
+  function openDelDialog(id) {
+    var sheet = masterSheet();
+    var rec = null;
+    sheet.rows.forEach(function (r) { if (String(r.id) === String(id)) rec = r; });
+    if (!rec) return;
+    delCtx = { id: rec.id, added: !!rec.added, name: dispName(rec) };
+    $('delMsg').textContent = rec.added
+      ? 'Hapus obat tambahan "' + delCtx.name + '" dari perencanaan "' + P().name + '"? Obat tambahan yang dihapus tidak bisa dikembalikan.'
+      : 'Hapus "' + delCtx.name + '" dari perencanaan "' + P().name + '"? Baris ini hilang dari tabel, hasil cetak, dan unduhan Excel perencanaan ini saja — daftar induk dan perencanaan lain tidak berubah. Obat ini bisa dikembalikan lagi dari daftar "Obat terhapus" di bawah tabel.';
+    $('delOverlay').style.display = 'flex';
+  }
+  function closeDelDialog() { $('delOverlay').style.display = 'none'; delCtx = null; }
+  function submitDelete() {
+    if (!delCtx) return;
+    var nm = delCtx.name, wasAdded = delCtx.added;
+    if (wasAdded) {
+      P().added = P().added.filter(function (a) { return String(a.id) !== String(delCtx.id); });
+      delete P().names[delCtx.id];
+    } else if (P().deleted.indexOf(delCtx.id) < 0) {
+      P().deleted.push(delCtx.id);
+    }
+    closeDelDialog();
+    refreshEff();
+    save();
+    render();
+    $('upStatus').textContent = 'Baris obat "' + nm + '" dihapus dari perencanaan "' + P().name + '".' +
+      (wasAdded ? '' : ' Bila berubah pikiran, kembalikan dari daftar "Obat terhapus" di bawah tabel.');
+  }
+  /* daftar obat induk yang terhapus dari perencanaan ini + tombol kembalikan */
+  function renderDeleted() {
+    var wrap = $('deletedWrap');
+    if (!wrap) return;
+    if (!P().deleted.length) { wrap.innerHTML = ''; return; }
+    var byId = {};
+    MASTER.sheets[0].rows.forEach(function (r) { if (r.t === 'd') byId[r.id] = r; });
+    wrap.innerHTML = '<p class="note" style="margin:10px 0 0">🗑 <b>Obat terhapus dari perencanaan ini:</b> ' +
+      P().deleted.map(function (id) {
+        var r = byId[id];
+        var nm = r ? (P().names[id] || r.name) : ('#' + id);
+        return esc(nm) + ' <button type="button" class="chipx" data-restore="' + id + '" title="Kembalikan obat ini ke daftar">↩ kembalikan</button>';
+      }).join(' · ') + '</p>';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-restore]'), function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-restore');
+        P().deleted = P().deleted.filter(function (x) { return String(x) !== String(id); });
+        refreshEff();
+        save();
+        render();
+        $('upStatus').textContent = 'Obat dikembalikan ke daftar perencanaan "' + P().name + '".';
+      });
+    });
   }
 
   /* ---------- edit manual nilai sel (tersimpan sebagai layer "Edit manual" hari ini) ---------- */
@@ -1118,6 +1197,7 @@ if (typeof module !== 'undefined' && module.exports) {
     $('compareCtl').style.display = ui.mode === 'compare' ? '' : 'none';
     $('onlyChangedWrap').style.display = ui.mode === 'compare' ? '' : 'none';
     if (ui.mode === 'latest') renderLatest(); else renderCompare();
+    renderDeleted();
     applyFilter();
   }
 
@@ -1174,9 +1254,11 @@ if (typeof module !== 'undefined' && module.exports) {
     var drow = ['', 'Tanggal data per kolom:', ''];
     vcols.forEach(function (vc) { var dd = res.lastDate[vc.canon]; drow.push(dd ? fmtTanggal(dd) : ''); });
     aoa.push(drow);
+    var secNo = 0; /* nomor urut dihitung per bagian dari urutan tampil */
     sheet.rows.forEach(function (rec) {
       if (rec.t === 'g') {
         sums = {};
+        secNo = 0;
         aoa.push(['', normText(rec.name)]);
         html += '<tr class="grp"><td colspan="' + ncol + '">' + esc(normText(rec.name)) + '</td></tr>';
         return;
@@ -1197,8 +1279,9 @@ if (typeof module !== 'undefined' && module.exports) {
         var e = lv[vc.canon] && lv[vc.canon][rec.id];
         if (e && isNumColName(vc.header)) { var n = toNum(e.v); if (n != null) sums[vc.canon] = (sums[vc.canon] || 0) + n; }
       });
-      html += '<tr data-name="' + esc(normKey(dispName(rec))) + '"><td>' + esc(fmtNum(rec.no)) + '</td><td class="editable nameCell" data-editname="' + rec.id + '" title="Klik untuk mengubah nama obat">' + esc(normText(dispName(rec))) + '</td><td class="editable grpCell" data-editgrp="' + rec.id + '" title="Klik untuk mengubah kategori barang">' + esc(normText(dispGroup(rec))) + '</td>';
-      var xrow = [rec.no, normText(dispName(rec)), normText(dispGroup(rec))];
+      secNo++;
+      html += '<tr data-name="' + esc(normKey(dispName(rec))) + '"><td>' + esc(fmtNum(secNo)) + '</td><td class="editable nameCell" data-editname="' + rec.id + '" title="Klik untuk mengubah nama obat">' + esc(normText(dispName(rec))) + (rec.added ? ' <span class="newBadge">BARU</span>' : '') + ' <button type="button" class="delBtn noprint" data-delrow="' + rec.id + '" title="Hapus baris obat ini dari perencanaan ini">🗑</button></td><td class="editable grpCell" data-editgrp="' + rec.id + '" title="Klik untuk mengubah kategori barang">' + esc(normText(dispGroup(rec))) + '</td>';
+      var xrow = [secNo, normText(dispName(rec)), normText(dispGroup(rec))];
       vcols.forEach(function (vc) {
         var e = lv[vc.canon] && lv[vc.canon][rec.id];
         if (e && e.computed) anyComputed = true;
@@ -1229,6 +1312,9 @@ if (typeof module !== 'undefined' && module.exports) {
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-editgrp]'), function (td) {
       td.addEventListener('click', function () { editGroup(td.getAttribute('data-editgrp')); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-delrow]'), function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); openDelDialog(b.getAttribute('data-delrow')); });
     });
     renderFooter(sheet);
   }
@@ -1277,8 +1363,9 @@ if (typeof module !== 'undefined' && module.exports) {
     var hrowX = ['NO', 'NAMA BARANG', ui.dateA ? fmtTanggal(ui.dateA) : '(belum ada)', fmtTanggal(ui.dateB)];
     if (numeric) hrowX.push('Selisih');
     aoa.push(hrowX);
+    var secNo = 0;
     sheet.rows.forEach(function (rec) {
-      if (rec.t === 'g') { aoa.push(['', normText(rec.name)]); html += '<tr class="grp"><td colspan="' + (numeric ? 5 : 4) + '">' + esc(normText(rec.name)) + '</td></tr>'; return; }
+      if (rec.t === 'g') { secNo = 0; aoa.push(['', normText(rec.name)]); html += '<tr class="grp"><td colspan="' + (numeric ? 5 : 4) + '">' + esc(normText(rec.name)) + '</td></tr>'; return; }
       if (rec.t === 'T') { aoa.push(['', 'TOTAL']); html += '<tr class="tot"><td></td><td><b>TOTAL</b></td><td colspan="' + (numeric ? 3 : 2) + '"></td></tr>'; return; }
       var va = mapA[rec.id], vb = mapB[rec.id];
       var na = toNum(va), nb = toNum(vb);
@@ -1286,11 +1373,12 @@ if (typeof module !== 'undefined' && module.exports) {
       if (na != null && nb != null) changed = na !== nb;
       else changed = normKey(va) !== normKey(vb);
       var d = (na != null && nb != null) ? nb - na : null;
-      var xrow = [rec.no, normText(dispName(rec)), na != null ? na : (va == null ? '' : va), nb != null ? nb : (vb == null ? '' : vb)];
+      secNo++;
+      var xrow = [secNo, normText(dispName(rec)), na != null ? na : (va == null ? '' : va), nb != null ? nb : (vb == null ? '' : vb)];
       if (numeric) xrow.push(d != null ? d : '');
       aoa.push(xrow);
       html += '<tr data-name="' + esc(normKey(dispName(rec))) + '" data-changed="' + (changed ? '1' : '0') + '" class="' + (changed ? 'chg' : '') + '">' +
-        '<td>' + esc(fmtNum(rec.no)) + '</td><td>' + esc(normText(dispName(rec))) + '</td>' +
+        '<td>' + esc(fmtNum(secNo)) + '</td><td>' + esc(normText(dispName(rec))) + (rec.added ? ' <span class="newBadge">BARU</span>' : '') + '</td>' +
         '<td class="' + (numeric ? 'num' : '') + '">' + esc(fmtNum(va)) + '</td>' +
         '<td class="' + (numeric ? 'num' : '') + '">' + esc(fmtNum(vb)) + '</td>' +
         (numeric ? '<td class="num">' + (d != null && d !== 0 ? '<b>' + esc(fmtDiff(d)) + '</b>' : esc(fmtDiff(d))) + '</td>' : '') +
@@ -1323,8 +1411,9 @@ if (typeof module !== 'undefined' && module.exports) {
       aoa.push(pad(hr.map(function (x) { return x == null ? '' : x; })));
     });
     var sums = {};
+    var secNo = 0;
     sheet.rows.forEach(function (rec) {
-      if (rec.t === 'g') { sums = {}; var gr = blankRow(); gr[off + 1] = normText(rec.name); aoa.push(gr); return; }
+      if (rec.t === 'g') { sums = {}; secNo = 0; var gr = blankRow(); gr[off + 1] = normText(rec.name); aoa.push(gr); return; }
       if (rec.t === 'T') {
         var trow = blankRow();
         trow[off + 1] = 'TOTAL';
@@ -1337,7 +1426,8 @@ if (typeof module !== 'undefined' && module.exports) {
         var e = lv[vc.canon] && lv[vc.canon][rec.id];
         if (e) { var n = toNum(e.v); if (n != null) sums[vc.canon] = (sums[vc.canon] || 0) + n; }
       });
-      var xrow = [rec.no, normText(dispName(rec)), normText(dispGroup(rec))];
+      secNo++;
+      var xrow = [secNo, normText(dispName(rec)), normText(dispGroup(rec))];
       vcols.forEach(function (vc) {
         var e = lv[vc.canon] && lv[vc.canon][rec.id];
         if (!e) { xrow.push(''); return; }
@@ -1419,6 +1509,9 @@ if (typeof module !== 'undefined' && module.exports) {
     $('addCancel').addEventListener('click', closeAddDialog);
     $('addOverlay').addEventListener('click', function (ev) { if (ev.target === $('addOverlay')) closeAddDialog(); });
     $('addName').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') submitAdd(); else if (ev.key === 'Escape') closeAddDialog(); });
+    $('delOk').addEventListener('click', submitDelete);
+    $('delCancel').addEventListener('click', closeDelDialog);
+    $('delOverlay').addEventListener('click', function (ev) { if (ev.target === $('delOverlay')) closeDelDialog(); });
     $('btnExcel').addEventListener('click', function () {
       var wbx = XLSX.utils.book_new();
       if (ui.mode === 'latest') {
