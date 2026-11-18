@@ -41,8 +41,6 @@
   .layer:first-of-type { border-top: none; }
   .chipx { border: none; padding: 0 4px; font-size: 13px; color: #b3261e; }
   .chipx:hover { background: #fdecea; transform: none; }
-  .editBtn { border: none; background: transparent; padding: 0 2px; font-size: 12px; cursor: pointer; }
-  .editBtn:hover { background: #e6f6f7; transform: none; }
   table.data td.editable { cursor: pointer; }
   table.data td.editable:hover { background: #eaf7f7; box-shadow: inset 0 0 0 2px #7fb6c4; }
   table.data td.man { background: #fff3d6; font-weight: 600; }
@@ -165,7 +163,7 @@
         <button type="button" id="btnPrint">🖨️ Cetak</button>
         <button type="button" id="btnExcel">⬇️ Unduh Excel</button>
       </div>
-      <p class="muted" style="margin:8px 0 0">Klik ✏️ pada nama obat untuk mengubah namanya, dan klik sel nilai mana pun untuk mengubah datanya — perubahan tersimpan di perangkat ini sebagai "Edit manual" (ada di Riwayat Sinkronisasi, bisa dibatalkan dari sana). Nama hasil edit berlaku di kedua sheet dan ikut di hasil cetak &amp; unduhan Excel; file yang di-upload tetap dicocokkan memakai nama asli dari daftar induk.</p>
+      <p class="muted" style="margin:8px 0 0">Klik nama obat untuk mengubah namanya, dan klik sel nilai mana pun untuk mengubah datanya — perubahan tersimpan di perangkat ini sebagai "Edit manual" (ada di Riwayat Sinkronisasi, bisa dibatalkan dari sana). Nama hasil edit berlaku di kedua sheet dan ikut di hasil cetak &amp; unduhan Excel; file yang di-upload tetap dicocokkan memakai nama asli dari daftar induk.</p>
     </div>
 
     <div id="printTitle"></div>
@@ -553,18 +551,23 @@ function columnHistory(layers, sheetName) {
 }
 
 /* Nilai terkini per kolom: { canon -> { idBaris -> {v, date, man} } } dan tanggal sinkron terakhir per kolom.
-   man = true bila nilai berasal dari layer edit manual. */
+   Layer edit manual SELALU menang atas hasil sinkron (koreksi pengguna adalah keputusan terakhir),
+   berapapun tanggal data sinkronnya; tanggal label kolom tetap dari sinkron terakhir. */
 function latestValues(layers, sheetName) {
   var hist = columnHistory(layers, sheetName);
   var latest = {}, lastDate = {};
-  var sorted = layers.slice().sort(function (a, b) { return (a.date < b.date ? -1 : a.date > b.date ? 1 : a.ts - b.ts); });
+  var sorted = layers.slice().sort(function (a, b) {
+    var am = a.manual ? 1 : 0, bm = b.manual ? 1 : 0;
+    if (am !== bm) return am - bm;
+    return (a.date < b.date ? -1 : a.date > b.date ? 1 : a.ts - b.ts);
+  });
   sorted.forEach(function (layer) {
     var sh = null;
     Object.keys(layer.sheets || {}).forEach(function (k) { if (normKey(k) === normKey(sheetName)) sh = layer.sheets[k]; });
     if (!sh) return;
     Object.keys(sh).forEach(function (canon) {
       if (!latest[canon]) latest[canon] = {};
-      lastDate[canon] = layer.date;
+      if (!layer.manual) lastDate[canon] = layer.date;
       var dst = latest[canon];
       Object.keys(sh[canon]).forEach(function (k) { dst[k] = { v: sh[canon][k], date: layer.date, man: !!layer.manual }; });
     });
@@ -903,7 +906,7 @@ if (typeof module !== 'undefined' && module.exports) {
         var e = lv[vc.canon] && lv[vc.canon][rec.id];
         if (e && isNumColName(vc.header)) { var n = toNum(e.v); if (n != null) sums[vc.canon] = (sums[vc.canon] || 0) + n; }
       });
-      html += '<tr data-name="' + esc(normKey(dispName(rec))) + '"><td>' + esc(fmtNum(rec.no)) + '</td><td>' + esc(normText(dispName(rec))) + ' <button type="button" class="editBtn noprint" data-edit="' + rec.id + '" title="Ubah nama obat">✏️</button></td><td>' + esc(normText(rec.group)) + '</td>';
+      html += '<tr data-name="' + esc(normKey(dispName(rec))) + '"><td>' + esc(fmtNum(rec.no)) + '</td><td class="editable nameCell" data-editname="' + rec.id + '" title="Klik untuk mengubah nama obat">' + esc(normText(dispName(rec))) + '</td><td>' + esc(normText(rec.group)) + '</td>';
       var xrow = [rec.no, normText(dispName(rec)), normText(rec.group)];
       vcols.forEach(function (vc) {
         var e = lv[vc.canon] && lv[vc.canon][rec.id];
@@ -924,8 +927,8 @@ if (typeof module !== 'undefined' && module.exports) {
     if (anyComputed) notes.push('Sebagian NILAI KEBUTUHAN adalah hasil hitungan otomatis (kebutuhan × harga satuan) karena kolom NILAI KEBUTUHAN belum pernah disinkronkan untuk barang itu.');
     if (anyMan) notes.push('Sel berwarna krem adalah hasil edit manual (ada di Riwayat Sinkronisasi sebagai "Edit manual").');
     $('tblNote').textContent = notes.join(' ');
-    Array.prototype.forEach.call(document.querySelectorAll('[data-edit]'), function (b) {
-      b.addEventListener('click', function () { editName(parseInt(b.getAttribute('data-edit'), 10)); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-editname]'), function (td) {
+      td.addEventListener('click', function () { editName(parseInt(td.getAttribute('data-editname'), 10)); });
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-editval]'), function (td) {
       td.addEventListener('click', function () {
