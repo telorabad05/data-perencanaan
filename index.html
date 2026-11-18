@@ -939,7 +939,12 @@ if (typeof module !== 'undefined' && module.exports) {
     save();
     closeAddDialog();
     render();
-    $('upStatus').textContent = 'Obat ditambahkan: ' + name + ' — bagian ' + section + ', masuk ke daftar. Klik sel nilainya untuk mengisi data, atau klik namanya untuk mengubah/menghapus.';
+    /* Langsung tampilkan obat barunya: isi kolom cari dengan namanya, supaya
+       pengguna langsung melihatnya (posisi aslinya di akhir bagian, sebelum TOTAL). */
+    $('inSearch').value = name;
+    ui.q = name;
+    applyFilter();
+    $('upStatus').textContent = 'Obat ditambahkan ke perencanaan "' + P().name + '": ' + name + ' — bagian ' + section + ', posisi di akhir bagian itu (sebelum baris TOTAL-nya). Tabel kini menampilkan obat itu; kosongkan kolom Cari untuk melihat semua. Klik sel nilainya untuk mengisi data, atau klik namanya untuk mengubah/menghapus.';
   }
 
   /* ---------- edit manual nilai sel (tersimpan sebagai layer "Edit manual" hari ini) ---------- */
