@@ -129,12 +129,18 @@
   #btnLogin { width: 100%; margin-top: 12px; padding: 11px; font-size: 15px; font-weight: bold; border: none; border-radius: 10px;
               background: #0e7490; color: #fff; cursor: pointer; }
   #btnLogin:hover { background: #155e75; }
-  #btnLogout { float: right; }
+  #btnSettings { float: right; }
+  #settingsOverlay { position: fixed; inset: 0; background: rgba(5, 30, 40, .5); backdrop-filter: blur(2px);
+                  display: none; align-items: center; justify-content: center; padding: 18px; z-index: 9000; }
+  .setBtn { width: 100%; margin-top: 10px; padding: 11px; font-size: 15px; font-weight: bold; border: none;
+            border-radius: 10px; color: #fff; cursor: pointer; }
+  #pwdStatus { color: #0e7490; font-size: 13px; min-height: 18px; margin: 8px 0 0; }
   @page { size: landscape; margin: 10mm; }
   @media print {
     .noprint { display: none !important; }
     #loadingOverlay { display: none !important; }
     #loginOverlay { display: none !important; }
+    #settingsOverlay { display: none !important; }
     #editOverlay { display: none !important; }
     #addOverlay { display: none !important; }
     #delOverlay { display: none !important; }
@@ -171,9 +177,26 @@
     <button type="button" id="btnLogin">🔓 Masuk</button>
   </div>
 </div>
+<div id="settingsOverlay">
+  <div class="loginCard">
+    <div class="loginIcon">⚙️</div>
+    <div class="loginTitle">Pengaturan</div>
+    <p class="loginSub">Ganti kata sandi akunmu — tersimpan aman (hash) di server dan berlaku di kedua alamat aplikasi.</p>
+    <label for="inOldPass">Kata Sandi Lama</label>
+    <input type="password" id="inOldPass" autocomplete="current-password" placeholder="kata sandi lama">
+    <label for="inNewPass">Kata Sandi Baru</label>
+    <input type="password" id="inNewPass" autocomplete="new-password" placeholder="minimal 6 karakter">
+    <label for="inNewPass2">Ulangi Kata Sandi Baru</label>
+    <input type="password" id="inNewPass2" autocomplete="new-password" placeholder="ulangi kata sandi baru">
+    <p id="pwdStatus"></p>
+    <button type="button" id="btnChangePass" class="setBtn" style="background:#0e7490">💾 Simpan Kata Sandi</button>
+    <button type="button" id="btnLogout" class="setBtn" style="background:#b91c1c">🔒 Keluar</button>
+    <button type="button" id="btnCloseSettings" class="setBtn" style="background:#64748b">Tutup</button>
+  </div>
+</div>
 <div class="wrap">
   <header class="band noprint">
-    <button type="button" id="btnLogout" style="display:none">🔒 Keluar</button>
+    <button type="button" id="btnSettings" style="display:none">⚙️ Pengaturan</button>
     <span id="whoAmI" style="float:right;margin-right:10px;font-size:13px;line-height:2"></span>
     <h1>💊 DATA PERENCANAAN OBAT</h1>
   </header>
@@ -203,20 +226,7 @@
     <p class="muted" style="margin:8px 0 0">Bila terhubung, semua data perencanaan (hasil upload, edit manual, obat tambahan) tersimpan juga di Google Sheets milikmu dan bisa dibuka dari perangkat mana saja dengan link + kunci yang sama. Setiap perubahan otomatis terkirim ke cloud; saat aplikasi dibuka, data cloud yang lebih baru otomatis dimuat. Yang terakhir menyimpan adalah yang berlaku. Tanpa koneksi, aplikasi tetap bekerja dengan data lokal perangkat ini.</p>
   </div>
 
-  <div class="card noprint" id="pwdCard">
-    <h2>🔑 Ganti Kata Sandi</h2>
-    <div class="rowflex">
-      <label for="inOldPass">Kata Sandi Lama:</label>
-      <input type="password" id="inOldPass" autocomplete="current-password" style="width:170px">
-      <label for="inNewPass">Kata Sandi Baru:</label>
-      <input type="password" id="inNewPass" autocomplete="new-password" style="width:170px">
-      <label for="inNewPass2">Ulangi Baru:</label>
-      <input type="password" id="inNewPass2" autocomplete="new-password" style="width:170px">
-      <button type="button" id="btnChangePass">Simpan Kata Sandi</button>
-    </div>
-    <div id="pwdStatus" class="muted" style="margin-top:8px"></div>
-    <p class="muted" style="margin:8px 0 0">Kata sandi tersimpan di server Google dalam bentuk hash (tidak bisa dibaca siapa pun) dan berlaku di kedua alamat aplikasi. Minimal 6 karakter.</p>
-  </div>
+
 
   <div class="card noprint">
     <h2>📤 Upload Data Baru (Excel)</h2>
@@ -1331,7 +1341,7 @@ if (typeof module !== 'undefined' && module.exports) {
   function isAuthed() { try { return store.get(AUTHKEY) === 'ok'; } catch (e) { return false; } }
   function refreshAuthGate() {
     var ov = $('loginOverlay');
-    var lb = $('btnLogout');
+    var lb = $('btnSettings');
     if (HOSTED) { /* server sudah memeriksa login sebelum aplikasi dikirim */
       if (ov) ov.style.display = 'none';
       if (lb) lb.style.display = '';
@@ -1378,6 +1388,8 @@ if (typeof module !== 'undefined' && module.exports) {
     location.reload();
   }
 
+  function openSettings() { var o = $('settingsOverlay'); if (o) o.style.display = 'flex'; pwdStatus(''); }
+  function closeSettings() { var o = $('settingsOverlay'); if (o) o.style.display = 'none'; }
   function pwdStatus(t) { var s = $('pwdStatus'); if (s) s.textContent = t; }
   function doChangePass() {
     var oldP = $('inOldPass').value, n1 = $('inNewPass').value, n2 = $('inNewPass2').value;
@@ -2274,6 +2286,9 @@ if (typeof module !== 'undefined' && module.exports) {
     $('inUser').addEventListener('keydown', function (e) { if (e.key === 'Enter') tryLogin(); });
     $('btnLogout').addEventListener('click', doLogout);
     if ($('btnChangePass')) $('btnChangePass').addEventListener('click', doChangePass);
+    if ($('btnSettings')) $('btnSettings').addEventListener('click', openSettings);
+    if ($('btnCloseSettings')) $('btnCloseSettings').addEventListener('click', closeSettings);
+    if ($('settingsOverlay')) $('settingsOverlay').addEventListener('click', function (e) { if (e.target === $('settingsOverlay')) closeSettings(); });
     refreshAuthGate();
     if (HOSTED && SESSION_TOKEN.indexOf('SESSION_TOKEN') < 0) { try { store.set('dataPerencanaanToken.v1', SESSION_TOKEN); } catch (e) {} }
     $('btnCloudConnect').addEventListener('click', cloudConnect);
