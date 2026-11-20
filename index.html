@@ -114,10 +114,27 @@
   .loadBarFill { height: 100%; width: 40%; border-radius: 99px;
                  background: linear-gradient(90deg, #14b8a6, #0e7490); animation: loadslide 1.1s ease-in-out infinite; }
   @keyframes loadslide { 0% { transform: translateX(-110%); } 100% { transform: translateX(280%); } }
+  /* ---------- layar login ---------- */
+  #loginOverlay { position: fixed; inset: 0; background: linear-gradient(160deg, #083344, #0e7490); z-index: 10000;
+                  display: flex; align-items: center; justify-content: center; padding: 18px; }
+  .loginCard { background: #fff; border-radius: 18px; padding: 30px 34px 26px; width: 92%; max-width: 360px;
+               box-shadow: 0 24px 60px rgba(0, 0, 0, .4); animation: fadeUp .25s ease both; }
+  .loginIcon { font-size: 40px; text-align: center; }
+  .loginTitle { text-align: center; font-weight: bold; font-size: 19px; color: #083344; margin-top: 6px; }
+  .loginSub { text-align: center; font-size: 12.5px; color: #54707c; margin: 6px 0 14px; }
+  .loginCard label { display: block; font-size: 13px; font-weight: 600; color: #083344; margin: 10px 0 4px; }
+  .loginCard input { width: 100%; padding: 10px 12px; border: 1.5px solid #b8ccd2; border-radius: 10px; font-size: 15px; box-sizing: border-box; }
+  .loginCard input:focus { outline: none; border-color: #0e7490; }
+  #loginErr { color: #b91c1c; font-size: 13px; min-height: 18px; margin: 8px 0 0; }
+  #btnLogin { width: 100%; margin-top: 12px; padding: 11px; font-size: 15px; font-weight: bold; border: none; border-radius: 10px;
+              background: #0e7490; color: #fff; cursor: pointer; }
+  #btnLogin:hover { background: #155e75; }
+  #btnLogout { float: right; }
   @page { size: landscape; margin: 10mm; }
   @media print {
     .noprint { display: none !important; }
     #loadingOverlay { display: none !important; }
+    #loginOverlay { display: none !important; }
     #editOverlay { display: none !important; }
     #addOverlay { display: none !important; }
     #delOverlay { display: none !important; }
@@ -141,8 +158,22 @@
 </style>
 </head>
 <body>
+<div id="loginOverlay">
+  <div class="loginCard">
+    <div class="loginIcon">🔐</div>
+    <div class="loginTitle">Data Perencanaan Obat</div>
+    <p class="loginSub">Instalasi Farmasi RSUP Dr. Wahidin Sudirohusodo<br>Masuk dulu untuk melihat data.</p>
+    <label for="inUser">Username</label>
+    <input type="text" id="inUser" autocomplete="username" placeholder="username">
+    <label for="inPass">Kata Sandi</label>
+    <input type="password" id="inPass" autocomplete="current-password" placeholder="kata sandi">
+    <p id="loginErr"></p>
+    <button type="button" id="btnLogin">🔓 Masuk</button>
+  </div>
+</div>
 <div class="wrap">
   <header class="band noprint">
+    <button type="button" id="btnLogout" style="display:none">🔒 Keluar</button>
     <h1>💊 DATA PERENCANAAN OBAT</h1>
     <p>Perencanaan Obat — Instalasi Farmasi RSUP Dr. Wahidin Sudirohusodo, Makassar</p>
   </header>
@@ -1209,6 +1240,89 @@ if (typeof module !== 'undefined' && module.exports) {
     return true;
   }
 
+  /* ---------- Kunci layar (login) ----------
+     Penghalang tampilan agar data tidak terlihat orang lain yang membuka
+     halaman ini. Yang tersimpan di kode hanya HASH kata sandi (SHA-256);
+     sesi login diingat per perangkat sampai pengguna menekan Keluar. */
+  function sha256(ascii) {
+    function rr(v, a) { return (v >>> a) | (v << (32 - a)); }
+    var mathPow = Math.pow, maxWord = mathPow(2, 32), i, j, result = '';
+    var words = [], asciiBitLength = ascii.length * 8;
+    var hash = sha256.h = sha256.h || [], k = sha256.k = sha256.k || [];
+    var primeCounter = k.length, isComposite = {};
+    for (var candidate = 2; primeCounter < 64; candidate++) {
+      if (!isComposite[candidate]) {
+        for (i = 0; i < 313; i += candidate) isComposite[i] = candidate;
+        hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;
+        k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+      }
+    }
+    ascii += '\x80';
+    while (ascii.length % 64 - 56) ascii += '\x00';
+    for (i = 0; i < ascii.length; i++) {
+      j = ascii.charCodeAt(i);
+      if (j >> 8) return sha256(unescape(encodeURIComponent(ascii)));
+      words[i >> 2] |= j << ((3 - i) % 4) * 8;
+    }
+    words[words.length] = ((asciiBitLength / maxWord) | 0);
+    words[words.length] = (asciiBitLength);
+    for (j = 0; j < words.length;) {
+      var w = words.slice(j, j += 16), oldHash = hash;
+      hash = hash.slice(0, 8);
+      for (i = 0; i < 64; i++) {
+        var w15 = w[i - 15], w2 = w[i - 2];
+        var a = hash[0], e = hash[4];
+        var temp1 = hash[7]
+          + (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25))
+          + ((e & hash[5]) ^ ((~e) & hash[6]))
+          + k[i]
+          + (w[i] = (i < 16) ? w[i] : (
+              w[i - 16]
+              + (rr(w15, 7) ^ rr(w15, 18) ^ (w15 >>> 3))
+              + w[i - 7]
+              + (rr(w2, 17) ^ rr(w2, 19) ^ (w2 >>> 10))
+            ) | 0);
+        var temp2 = (rr(a, 2) ^ rr(a, 13) ^ rr(a, 22))
+          + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+        hash = [(temp1 + temp2) | 0].concat(hash);
+        hash[4] = (hash[4] + temp1) | 0;
+      }
+      for (i = 0; i < 8; i++) hash[i] = (hash[i] + oldHash[i]) | 0;
+    }
+    for (i = 0; i < 8; i++) {
+      for (j = 3; j + 1; j--) {
+        var b = (hash[i] >> (j * 8)) & 255;
+        result += ((b < 16) ? '0' : '') + b.toString(16);
+      }
+    }
+    return result;
+  }
+  var AUTH_USER = 'telorabad';
+  var AUTH_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
+  var AUTHKEY = 'dataPerencanaanAuth.v1';
+  function isAuthed() { try { return localStorage.getItem(AUTHKEY) === 'ok'; } catch (e) { return false; } }
+  function refreshAuthGate() {
+    var ov = $('loginOverlay');
+    if (ov) ov.style.display = isAuthed() ? 'none' : 'flex';
+    var lb = $('btnLogout');
+    if (lb) lb.style.display = isAuthed() ? '' : 'none';
+  }
+  function tryLogin() {
+    var u = $('inUser').value.trim(), p = $('inPass').value;
+    if (u === AUTH_USER && sha256(p) === AUTH_HASH) {
+      try { localStorage.setItem(AUTHKEY, 'ok'); } catch (e) {}
+      $('loginErr').textContent = '';
+      $('inPass').value = '';
+      refreshAuthGate();
+    } else {
+      $('loginErr').textContent = 'Username atau kata sandi salah. Coba lagi.';
+    }
+  }
+  function doLogout() {
+    try { localStorage.removeItem(AUTHKEY); } catch (e) {}
+    location.reload();
+  }
+
   /* ---------- Data Online (Google Sheets) ----------
      Seluruh db dikirim ke jembatan Apps Script milik pengguna; yang terakhir
      menyimpan berlaku (berdasarkan db.cloudTs). Link + kunci disimpan per
@@ -2028,6 +2142,11 @@ if (typeof module !== 'undefined' && module.exports) {
     $('editOverlay').addEventListener('click', function (ev) { if (ev.target === $('editOverlay')) closeEditDialog(null); });
     $('btnAdd').addEventListener('click', openAddDialog);
     $('btnClean').addEventListener('click', cleanupNonTablet);
+    $('btnLogin').addEventListener('click', tryLogin);
+    $('inPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') tryLogin(); });
+    $('inUser').addEventListener('keydown', function (e) { if (e.key === 'Enter') tryLogin(); });
+    $('btnLogout').addEventListener('click', doLogout);
+    refreshAuthGate();
     $('btnCloudConnect').addEventListener('click', cloudConnect);
     $('btnCloudPull').addEventListener('click', function () { cloudPull(true); });
     refreshCloudUI();
