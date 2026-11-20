@@ -1336,7 +1336,7 @@ if (typeof module !== 'undefined' && module.exports) {
       /* Cabut sesi di server, lupakan token di perangkat, kembali ke login. */
       try { store.remove('dataPerencanaanToken.v1'); } catch (e) {}
       try { google.script.run.apiLogout(SESSION_TOKEN); } catch (e) {}
-      setTimeout(function () { location.reload(); }, 250);
+      setTimeout(backToLogin, 250);
       return;
     }
     try { store.remove(AUTHKEY); } catch (e) {}
@@ -1358,6 +1358,10 @@ if (typeof module !== 'undefined' && module.exports) {
      dengan token asli saat aplikasi dikirim setelah login. Di edisi GitHub
      tidak dipakai. */
   var SESSION_TOKEN = '__SESSION_TOKEN__';
+  var APP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyidWwpuB8nASD_xRDPeE1x2mp_fU8QdGjozFyfANOo_U-_BUUXu63jvhYHhAR5BeKfug/exec';
+  /* Kembali ke halaman login Google: arahkan bingkai ke alamat /exec
+     (location.reload di dalam bingkai Apps Script bisa tampil putih). */
+  function backToLogin() { try { window.location.href = APP_EXEC_URL; } catch (e) { try { location.reload(); } catch (x) {} } }
   if (HOSTED) cloudCfg = { url: 'apps-script', key: '' };
   var cloudTimer = null, cloudBusy = false, cloudAdopting = false;
   function cloudStatus(txt) { var el = $('cloudStatus'); if (el) el.textContent = txt; }
@@ -1373,7 +1377,7 @@ if (typeof module !== 'undefined' && module.exports) {
     cloudStatus('☁️ Mengirim data ke cloud …');
     var done = function (res) {
       cloudBusy = false;
-      if (res && res.error === 'SESI') { cloudStatus('🔒 Sesi berakhir — silakan login ulang.'); setTimeout(function () { location.reload(); }, 1200); return; }
+      if (res && res.error === 'SESI') { cloudStatus('🔒 Sesi berakhir — silakan login ulang.'); setTimeout(backToLogin, 1200); return; }
       if (res && res.ok) cloudStatus('☁️ Terhubung — data tersimpan online · ' + cloudStamp(db.cloudTs));
       else cloudStatus('☁️ Gagal menyimpan online: ' + ((res && res.error) || 'jawaban tidak dikenal') + ' (data lokal aman).');
     };
@@ -1391,7 +1395,7 @@ if (typeof module !== 'undefined' && module.exports) {
     if (!cloudCfg.url || (!HOSTED && !cloudCfg.key)) { if (manual) cloudStatus('Isi Link Jembatan dan Kunci dulu, lalu klik Hubungkan.'); return; }
     cloudStatus('☁️ Memeriksa data online …');
     var got = function (res) {
-        if (res && res.error === 'SESI') { cloudStatus('🔒 Sesi berakhir — silakan login ulang.'); setTimeout(function () { location.reload(); }, 1200); return; }
+        if (res && res.error === 'SESI') { cloudStatus('🔒 Sesi berakhir — silakan login ulang.'); setTimeout(backToLogin, 1200); return; }
         if (!res || !res.ok) { cloudStatus('☁️ Gagal memuat dari cloud: ' + ((res && res.error) || 'jawaban tidak dikenal') + ' (data lokal dipakai).'); return; }
         if (!res.data) {
           cloudStatus('☁️ Cloud masih kosong — data perangkat ini dikirim sebagai data awal.');
