@@ -877,6 +877,19 @@ function latestValues(layers, sheetName) {
       Object.keys(sh[canon]).forEach(function (k) { dst[k] = { v: sh[canon][k], date: layer.date, man: !!layer.manual }; });
     });
   });
+  /* Nilai minus pada data sumber (mis. Stok Akhir hasil hitungan file
+     rumah sakit bisa minus bila pemakaian melebihi stok) ditampilkan
+     sebagai nilai mutlak — tanpa tanda minus — atas permintaan Hugo
+     2026-11-20, sama seperti kolom Pemakaian. Ini hanya aturan TAMPILAN
+     Data Terkini (layar, cetak, Excel): data tersimpan tidak diubah,
+     dan tampilan perbandingan antar-tanggal tetap memakai nilai asli. */
+  Object.keys(latest).forEach(function (canon) {
+    Object.keys(latest[canon]).forEach(function (k) {
+      var e = latest[canon][k];
+      var n = toNum(e.v);
+      if (n != null && n < 0) e.v = Math.abs(n);
+    });
+  });
   return { latest: latest, lastDate: lastDate, hist: hist };
 }
 
