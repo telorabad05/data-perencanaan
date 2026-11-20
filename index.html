@@ -1297,11 +1297,12 @@ if (typeof module !== 'undefined' && module.exports) {
     /* Pemakaian dihitung otomatis (rumus rumah sakit):
        Pemakaian = Stok Awal + Penerimaan - Stok Akhir Instalasi Farmasi.
        Hanya tampil bila Stok Akhir terisi; Stok Awal/Penerimaan kosong dianggap 0.
-       Harga Pemakaian = Jumlah x Harga satuan. */
+       Hasil minus ditampilkan sebagai nilai mutlak (tanda minus dihilangkan,
+       atas permintaan Hugo 2026-11-20). Harga Pemakaian = Jumlah x Harga satuan. */
     function pemakaian(id) {
       var a = numE('STOK AWAL', id), f = numE('PENERIMAAN JUMLAH', id), ak = numE('STOK AKHIR JUMLAH', id);
       if (ak == null) return { j: null, h: null };
-      var j = (a || 0) + (f || 0) - ak;
+      var j = Math.abs((a || 0) + (f || 0) - ak);
       var hrg = numE('HARGA', id);
       return { j: j, h: hrg != null ? j * hrg : null };
     }
@@ -1374,7 +1375,7 @@ if (typeof module !== 'undefined' && module.exports) {
         if (n != null) sums[i] = (sums[i] || 0) + n;
         if (dc.computed) {
           if (v != null) anyComputed = true;
-          html += '<td class="num calc" title="Dihitung otomatis: Pemakaian = Stok Awal + Penerimaan − Stok Akhir Instalasi Farmasi; Harga = Jumlah × Harga satuan">' + (v != null ? esc(fmtNum(v)) : '') + '</td>';
+          html += '<td class="num calc" title="Dihitung otomatis: Pemakaian = Stok Awal + Penerimaan − Stok Akhir Instalasi Farmasi (hasil minus ditampilkan tanpa tanda minus); Harga = Jumlah × Harga satuan">' + (v != null ? esc(fmtNum(v)) : '') + '</td>';
         } else {
           var e = ent(dc.canon, rec.id);
           if (e && e.computed) anyDerived = true;
@@ -1392,7 +1393,7 @@ if (typeof module !== 'undefined' && module.exports) {
     $('tableWrap').innerHTML = html;
     var notes = [];
     if (anyDerived) notes.push('Kolom Harga pasangan (Penerimaan, Pemakaian, dan Estimasi Kebutuhan) dihitung otomatis = Jumlah × Harga satuan — cukup isi/upload kolom Jumlah saja.');
-    if (anyComputed) notes.push('Kolom Pemakaian dihitung otomatis = Stok Awal + Penerimaan − Stok Akhir Instalasi Farmasi.');
+    if (anyComputed) notes.push('Kolom Pemakaian dihitung otomatis = Stok Awal + Penerimaan − Stok Akhir Instalasi Farmasi (hasil minus ditampilkan tanpa tanda minus).');
     if (anyMan) notes.push('Sel berwarna krem adalah hasil edit manual (ada di Riwayat Sinkronisasi sebagai "Edit manual").');
     $('tblNote').textContent = notes.join(' ');
     Array.prototype.forEach.call(document.querySelectorAll('[data-editname]'), function (td) {
@@ -1585,7 +1586,7 @@ if (typeof module !== 'undefined' && module.exports) {
       var hrg = numOf('HARGA', rec.id), stokAwal = numOf('STOK AWAL', rec.id);
       var penJ = numOf('PENERIMAAN JUMLAH', rec.id), penH = numOf('PENERIMAAN HARGA', rec.id);
       var akhJ = numOf('STOK AKHIR JUMLAH', rec.id), akhH = numOf('STOK AKHIR HARGA', rec.id);
-      var pemJ = akhJ != null ? (stokAwal || 0) + (penJ || 0) - akhJ : null;
+      var pemJ = akhJ != null ? Math.abs((stokAwal || 0) + (penJ || 0) - akhJ) : null;
       var pemH = pemJ != null && hrg != null ? pemJ * hrg : null;
       var akhHVal = akhJ != null && hrg != null ? akhJ * hrg : akhH;
       put(r, 0, secNo, sNum);
@@ -1595,7 +1596,7 @@ if (typeof module !== 'undefined' && module.exports) {
       put(r, 4, stokAwal, sNum);
       put(r, 5, penJ, sNum);
       if (penJ != null && hrg != null) put(r, 6, penJ * hrg, sNum, 'F' + R + '*D' + R); else put(r, 6, penH, sNum);
-      if (pemJ != null) put(r, 7, pemJ, sNum, 'E' + R + '+F' + R + '-J' + R); else put(r, 7, null, sNum);
+      if (pemJ != null) put(r, 7, pemJ, sNum, 'ABS(E' + R + '+F' + R + '-J' + R + ')'); else put(r, 7, null, sNum);
       if (pemH != null) put(r, 8, pemH, sNum, 'H' + R + '*D' + R); else put(r, 8, null, sNum);
       put(r, 9, akhJ, sNum);
       if (akhJ != null && hrg != null) put(r, 10, akhHVal, sNum, 'J' + R + '*D' + R); else put(r, 10, akhH, sNum);
