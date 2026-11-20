@@ -172,8 +172,12 @@
         <option value="all">Semua sheet</option>
       </select>
     </div>
-    <p class="muted" style="margin:8px 0 0">Nama barang &amp; kategori barang mengikuti daftar induk dan <b>tidak berubah</b>. File yang di-upload boleh berisi kolom nilai apa saja — HARGA, STOK AWAL, PENERIMAAN (Jumlah/Harga), STOK AKHIR INSTALASI FARMASI (Jumlah/Harga), ESTIMASI KEBUTUHAN (Jumlah/Harga) — tiap kolom bisa di-upload tersendiri; hanya kolom yang terisi yang disinkronkan, dicocokkan menurut nama barang. <b>Kolom Harga yang berpasangan dengan Jumlah (Penerimaan Harga, Stok Akhir Harga, Estimasi Kebutuhan Harga) tidak perlu diisi</b> — otomatis dihitung dari Jumlah × Harga satuan, jadi cukup masukkan data Jumlah saja. Kolom Pemakaian juga tidak perlu diisi — dihitung otomatis dari Stok Awal + Penerimaan − Stok Akhir Instalasi Farmasi. Sel yang kosong di file berarti tidak ada pembaruan untuk sel itu. File ekspor dari sistem lain juga bisa langsung di-upload — kolom dikenali dari nama kolomnya, bukan posisinya, dan nama barang dicocokkan walau ada akhiran seperti "Ecat"/"Ekse".</p>
+    <p class="muted" style="margin:8px 0 0">Nama barang &amp; kategori barang mengikuti daftar induk dan <b>tidak berubah</b>. File yang di-upload boleh berisi kolom nilai apa saja — HARGA, STOK AWAL, PENERIMAAN (Jumlah/Harga), STOK AKHIR INSTALASI FARMASI (Jumlah/Harga), ESTIMASI KEBUTUHAN (Jumlah/Harga) — tiap kolom bisa di-upload tersendiri; hanya kolom yang terisi yang disinkronkan, dicocokkan menurut nama barang. <b>Kolom Harga yang berpasangan dengan Jumlah (Penerimaan Harga, Stok Akhir Harga, Estimasi Kebutuhan Harga) tidak perlu diisi</b> — otomatis dihitung dari Jumlah × Harga satuan, jadi cukup masukkan data Jumlah saja. Kolom Pemakaian juga tidak perlu diisi — dihitung otomatis dari Stok Awal + Penerimaan − Stok Akhir Instalasi Farmasi. Sel yang kosong di file berarti tidak ada pembaruan untuk sel itu. File ekspor dari sistem lain juga bisa langsung di-upload — kolom dikenali dari nama kolomnya, bukan posisinya, dan nama barang dicocokkan walau ada akhiran seperti "Ecat"/"Ekse". Nama format merek seperti "Arimidex (Anastrozole) Tab 1 mg" dicocokkan ke nama generik di dalam kurung. Bila satu obat muncul beberapa baris (mis. file FIFO per batch), nilainya <b>dijumlahkan</b> — khusus Harga satuan dipakai nilai terakhir. Nama berkode (Ekse)/(PS) yang belum ada di daftar induk <b>otomatis ditambahkan ke bagian NON BPJS FORKIT</b> (bertanda BARU, bisa dihapus dengan tombol 🗑). Setelah aturan pencocokan diperbarui, file terakhir yang di-upload bisa diterapkan ulang dengan tombol <b>🔄 Sinkronisasi Ulang</b> di bawah ini — tanpa upload lagi.</p>
     <div id="upStatus"></div>
+    <div class="rowflex">
+      <button type="button" id="btnResync" disabled>🔄 Sinkronisasi Ulang</button>
+      <span id="resyncInfo" class="muted"></span>
+    </div>
   </div>
 
   <div class="card noprint">
@@ -321,8 +325,23 @@ function normMatch(v) {
   var s = normKey(v);
   s = s.replace(/(\s*\(?(ECAT|EKSE)\)?)+$/g, '').trim();
   s = s.replace(/\s+%/g, '%');
+  s = s.replace(/(\d)\.(\d)/g, '$1,$2'); /* desimal "0.5" disamakan dengan "0,5" */
   s = s.replace(/\s+/g, ' ');
   return s;
+}
+
+/* Kunci generik untuk nama format merek: "Arimidex (Anastrozole) Tab 1 mg Ecat"
+   -> "ANASTROZOLE TAB 1 MG" (nama di dalam kurung + sisa nama setelah kurung).
+   Kurung berisi kode sumber (PS/EKSE/ECAT) atau terlalu pendek -> bukan generik. */
+function genericKey(name) {
+  var s = String(name == null ? '' : name);
+  var m = s.match(/\(([^()]*)\)/);
+  if (!m) return '';
+  var inside = normMatch(m[1]);
+  if (!inside || inside.length < 4) return '';
+  if (inside === 'PS' || inside === 'EKSE' || inside === 'ECAT') return '';
+  var after = s.slice(m.index + m[0].length);
+  return normMatch(inside + ' ' + after);
 }
 
 /* Parse satu sheet dari array-of-arrays (SheetJS header:1).
@@ -582,8 +601,8 @@ function isNumColName(header) {
 function assignRowKeys(rows) {
   var group = '', counts = {}, sheetCounts = {};
   rows.forEach(function (rec) {
-    if (rec.t === 'g') { group = normKey(rec.name); rec._key = null; rec._key2 = null; rec._mkey = null; return; }
-    if (rec.t !== 'd') { rec._key = null; rec._key2 = null; rec._mkey = null; return; }
+    if (rec.t === 'g') { group = normKey(rec.name); rec._key = null; rec._key2 = null; rec._mkey = null; rec._gkey = null; return; }
+    if (rec.t !== 'd') { rec._key = null; rec._key2 = null; rec._mkey = null; rec._gkey = null; return; }
     var base = group + '|' + normKey(rec.name);
     var n = counts[base] || 0; counts[base] = n + 1;
     var sb = normKey(rec.name);
@@ -591,13 +610,16 @@ function assignRowKeys(rows) {
     rec._key = base + '|' + n;
     rec._key2 = sb + '|' + sn;
     rec._mkey = normMatch(rec.name);
+    rec._gkey = genericKey(rec.name);
   });
 }
 
 /* Sinkronkan satu sheet hasil parse ke sheet induk.
    Hanya kolom nilai yang diambil; nama/kelompok induk tidak pernah berubah.
    Pencocokan baris: (1) kunci persis kelompok+nama / nama+urutan,
-   (2) kunci longgar normMatch bila unik di kedua sisi.
+   (2) kunci longgar normMatch / kunci generik (merek -> generik dalam kurung)
+   bila menunjuk tepat satu obat induk. Beberapa baris unggahan boleh cocok ke
+   satu obat induk; nilainya dijumlahkan (HARGA satuan: nilai terakhir).
    Sel kosong di file unggahan = tidak ada pembaruan untuk sel itu. */
 /* Kolom HARGA pasangan dari kolom JUMLAH: 'PENERIMAAN HARGA' -> 'PENERIMAAN JUMLAH',
    'OPNAME IRD HARGA' -> 'OPNAME IRD JUMLAH', dst. Mengembalikan nama kolom jumlah
@@ -615,27 +637,42 @@ function syncSheet(masterSheet, parsedSheet) {
   var masterCols = {};
   masterSheet.headers.forEach(function (h) { var cn = canonCol(h); if (!IDENTITY[cn]) masterCols[cn] = true; });
 
-  var mByKey = {}, mByKey2 = {}, matchedMaster = {};
+  var mByKey = {}, mByKey2 = {};
   masterSheet.rows.forEach(function (rec) { if (rec._key) { mByKey[rec._key] = rec; mByKey2[rec._key2] = rec; } });
+  /* Pencocokan banyak-ke-satu (keputusan Hugo 2026-11-20): beberapa baris unggahan
+     boleh cocok ke satu obat induk yang sama — mis. file FIFO per batch — dan
+     nilainya DIJUMLAHKAN (khusus HARGA satuan: nilai terakhir yang dipakai). */
   var pairs = [], unmatchedUpload = [];
   parsedSheet.rows.forEach(function (rec) {
     if (rec.t !== 'd') return;
     var m = (rec._key && mByKey[rec._key]) || (rec._key2 && mByKey2[rec._key2]) || null;
-    if (m && !matchedMaster[m._key]) { matchedMaster[m._key] = 1; pairs.push({ u: rec, m: m }); }
+    if (m) pairs.push({ u: rec, m: m });
     else unmatchedUpload.push(rec);
   });
-  var gM = {}, gU = {};
-  masterSheet.rows.forEach(function (r) { if (r.t === 'd' && !matchedMaster[r._key]) (gM[r._mkey] = gM[r._mkey] || []).push(r); });
-  unmatchedUpload.forEach(function (r) { (gU[r._mkey] = gU[r._mkey] || []).push(r); });
+  /* kunci longgar: normMatch + kunci generik (nama merek -> generik dalam kurung).
+     Kunci longgar hanya dipakai bila menunjuk TEPAT SATU obat induk. */
+  var gM = {};
+  masterSheet.rows.forEach(function (r) {
+    if (r.t !== 'd') return;
+    [r._mkey, r._gkey].forEach(function (k) {
+      if (!k) return;
+      var arr = gM[k] = gM[k] || [];
+      if (arr.indexOf(r) < 0) arr.push(r);
+    });
+  });
   var stillUnmatched = [];
   unmatchedUpload.forEach(function (rec) {
-    var cand = gM[rec._mkey];
-    if (cand && cand.length === 1 && gU[rec._mkey].length === 1 && !matchedMaster[cand[0]._key]) {
-      matchedMaster[cand[0]._key] = 1; pairs.push({ u: rec, m: cand[0] });
-    } else stillUnmatched.push(rec);
+    var m = null;
+    [rec._mkey, rec._gkey].forEach(function (k) {
+      if (m || !k) return;
+      var cand = gM[k];
+      if (cand && cand.length === 1) m = cand[0];
+    });
+    if (m) pairs.push({ u: rec, m: m });
+    else stillUnmatched.push(rec);
   });
 
-  var cols = {}, ignoredCols = [];
+  var cols = {}, ignoredCols = [], summedExtra = 0;
   parsedSheet.headers.forEach(function (h, ci) {
     var canon = canonCol(h);
     if (IDENTITY[canon]) return;
@@ -643,14 +680,23 @@ function syncSheet(masterSheet, parsedSheet) {
     /* kolom harga turunan tidak disimpan: nilainya selalu dihitung dari Jumlah x Harga satuan */
     var dq = derivedQtyCanon(canon);
     if (dq && masterCols[dq]) { ignoredCols.push(h); return; }
-    var vals = {};
+    var vals = {}, seen = {};
     pairs.forEach(function (p) {
       var v = p.u.cells[ci];
-      if (v != null && (normText(v) !== '' || isNumVal(v))) vals[p.m.id] = v;
+      if (v != null && (normText(v) !== '' || isNumVal(v))) {
+        if (seen[p.m.id]) {
+          var a = toNum(vals[p.m.id]), b = toNum(v);
+          if (canon !== 'HARGA' && a != null && b != null) vals[p.m.id] = a + b;
+          else vals[p.m.id] = v;
+        } else { seen[p.m.id] = 1; vals[p.m.id] = v; }
+      }
     });
     if (Object.keys(vals).length) cols[canon] = vals;
   });
-  return { cols: cols, ignoredCols: ignoredCols, matchedRows: pairs.length, unmatchedNames: stillUnmatched.map(function (r) { return r.name; }) };
+  var distinctMaster = {};
+  pairs.forEach(function (p) { distinctMaster[p.m.id] = 1; });
+  summedExtra = pairs.length - Object.keys(distinctMaster).length;
+  return { cols: cols, ignoredCols: ignoredCols, matchedRows: Object.keys(distinctMaster).length, summedExtra: summedExtra, unmatchedNames: stillUnmatched.map(function (r) { return r.name; }), unmatchedRows: stillUnmatched };
 }
 
 /* Gabungkan semua layer untuk satu sheet: per kolom -> per tanggal -> {kunciBaris: nilai} */
@@ -748,7 +794,7 @@ function fillNilai(latest) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseSheetAOA: parseSheetAOA, buildCompare: buildCompare, countData: countData, toNum: toNum, normKey: normKey, normText: normText, fmtNum: fmtNum, fmtDiff: fmtDiff, fmtTanggal: fmtTanggal, canonCol: canonCol, isNumColName: isNumColName, assignRowKeys: assignRowKeys, syncSheet: syncSheet, columnHistory: columnHistory, latestValues: latestValues, fillNilai: fillNilai, fillDerivedPrices: fillDerivedPrices, derivedQtyCanon: derivedQtyCanon, normMatch: normMatch };
+  module.exports = { parseSheetAOA: parseSheetAOA, buildCompare: buildCompare, countData: countData, toNum: toNum, normKey: normKey, normText: normText, fmtNum: fmtNum, fmtDiff: fmtDiff, fmtTanggal: fmtTanggal, canonCol: canonCol, isNumColName: isNumColName, assignRowKeys: assignRowKeys, syncSheet: syncSheet, columnHistory: columnHistory, latestValues: latestValues, fillNilai: fillNilai, fillDerivedPrices: fillDerivedPrices, derivedQtyCanon: derivedQtyCanon, normMatch: normMatch, genericKey: genericKey };
 }
 </script>
 <script>/* Data Perencanaan Obat v2 — daftar induk tetap + sinkronisasi per kolom */
@@ -1147,6 +1193,49 @@ if (typeof module !== 'undefined' && module.exports) {
   }
   function nextFrame() { return new Promise(function (res) { requestAnimationFrame(function () { setTimeout(res, 20); }); }); }
 
+  /* Obat berkode sumber (Ekse)/(PS) yang belum ada di daftar induk otomatis
+     ditambahkan ke bagian NON BPJS FORKIT (keputusan Hugo 2026-11-20; di daftar
+     induk hampir semua nama berkode memang tinggal di bagian itu). */
+  var AUTOADD_SECTION = 'NON BPJS  FORKIT';
+  function hasSourceCode(name) {
+    var s = String(name == null ? '' : name);
+    return /\(\s*(EKSE|ECAT|PS)\s*\)/i.test(s) || /\b(EKSE|ECAT)\s*$/i.test(s.trim());
+  }
+  function autoAddCoded(res) {
+    var addedNames = [];
+    (res.unmatchedRows || []).forEach(function (rec) {
+      var nm = normText(rec.name);
+      if (!nm || !hasSourceCode(rec.name)) return;
+      var mk = normMatch(nm), gk = genericKey(nm);
+      var exists = P().added.some(function (a) { return normMatch(a.name) === mk; });
+      if (!exists) EFF.forEach(function (s) {
+        s.rows.forEach(function (r) {
+          if (r.t !== 'd' || exists) return;
+          if (normMatch(r.name) === mk || (gk && genericKey(r.name) === gk) || (gk && normMatch(r.name) === gk)) exists = true;
+        });
+      });
+      if (exists) return;
+      P().seq = (P().seq || 0) + 1;
+      P().added.push({ id: 'U' + P().seq, name: nm, section: AUTOADD_SECTION, group: normText(rec.group) || '' });
+      addedNames.push(nm);
+    });
+    return addedNames;
+  }
+  /* Sinkronkan ke satu sheet induk; bila ada nama berkode yang belum dikenal,
+     tambahkan dulu sebagai obat baru lalu sinkronkan ulang agar nilainya ikut. */
+  function syncTarget(ms, parsed) {
+    var res = syncSheet(ms, parsed);
+    var addedNames = autoAddCoded(res);
+    if (addedNames.length) {
+      refreshEff();
+      var ms2 = null;
+      EFF.forEach(function (s) { if (s.name === ms.name) ms2 = s; });
+      if (ms2) res = syncSheet(ms2, parsed);
+    }
+    res.autoAdded = addedNames;
+    return res;
+  }
+
   function handleFile(file) {
     if (!file) return;
     var date = $('inDate').value || todayISO();
@@ -1162,6 +1251,7 @@ if (typeof module !== 'undefined' && module.exports) {
         await nextFrame();
       var layer = { id: 'L' + Date.now(), date: date, file: file.name, ts: Date.now(), sheets: {}, summary: {} };
       var skippedSheets = [], anyCols = false;
+      var parsedByTarget = {};
       var targetMode = $('selTarget') ? $('selTarget').value : 'auto';
       function targetsFor(sheetName) {
         if (targetMode === 'all') return EFF;
@@ -1174,7 +1264,8 @@ if (typeof module !== 'undefined' && module.exports) {
         var parsed = parseSheetAOA(name, aoa);
         if (!parsed) { skippedSheets.push(name); return; }
         targetsFor(name).forEach(function (ms) {
-          var res = syncSheet(ms, parsed);
+          parsedByTarget[ms.name] = parsed;
+          var res = syncTarget(ms, parsed);
           var colCounts = {};
           Object.keys(res.cols).forEach(function (c) { colCounts[c] = Object.keys(res.cols[c]).length; });
           if (Object.keys(res.cols).length) {
@@ -1188,24 +1279,50 @@ if (typeof module !== 'undefined' && module.exports) {
             prev.matched = Math.max(prev.matched, res.matchedRows);
             prev.unmatched = res.unmatchedNames.length;
             if (res.ignoredCols.length) prev.ignored = res.ignoredCols;
+            prev.autoAdded = res.autoAdded || [];
+            prev.summedExtra = res.summedExtra || 0;
           } else {
-            layer.summary[ms.name] = { matched: res.matchedRows, unmatched: res.unmatchedNames.length, cols: colCounts, ignored: res.ignoredCols };
+            layer.summary[ms.name] = { matched: res.matchedRows, unmatched: res.unmatchedNames.length, cols: colCounts, ignored: res.ignoredCols, autoAdded: res.autoAdded || [], summedExtra: res.summedExtra || 0 };
           }
         });
       });
+      /* Simpan salinan hasil parse file ini agar tombol Sinkronisasi Ulang bisa
+         menerapkan aturan pencocokan terbaru tanpa upload ulang. Bila terlalu
+         besar untuk penyimpanan peramban, salinan tidak disimpan. */
+      var parsedStore = null;
+      try {
+        if (JSON.stringify(parsedByTarget).length <= 2000000) {
+          parsedStore = { file: file.name, date: date, layerId: null, parsed: parsedByTarget };
+        }
+      } catch (e) { parsedStore = null; }
+      var prevLU = P().lastUpload;
       if (!anyCols) {
-        $('upStatus').textContent = 'Tidak ada kolom nilai yang cocok dengan daftar induk dari file ini. Pastikan ada kolom NAMA BARANG dan minimal satu kolom nilai (HARGA, STOK AWAL, PENERIMAAN, STOK AKHIR, atau ESTIMASI KEBUTUHAN) yang terisi.';
+        if (parsedStore) {
+          P().lastUpload = parsedStore;
+          if (!save()) P().lastUpload = prevLU;
+          refreshResync();
+        }
+        $('upStatus').textContent = 'Tidak ada kolom nilai yang cocok dengan daftar induk dari file ini. Pastikan ada kolom NAMA BARANG dan minimal satu kolom nilai (HARGA, STOK AWAL, PENERIMAAN, STOK AKHIR, atau ESTIMASI KEBUTUHAN) yang terisi.' + (parsedStore ? ' File ini sudah disimpan — setelah aturan pencocokan diperbarui, tekan tombol Sinkronisasi Ulang untuk mencoba lagi tanpa upload ulang.' : '');
         return;
       }
       P().layers.push(layer);
-      if (!save()) { P().layers.pop(); return; }
+      if (parsedStore) {
+        parsedStore.layerId = layer.id;
+        P().lastUpload = parsedStore;
+        if (!save()) {
+          /* penyimpanan penuh: coba lagi tanpa salinan file (hasil sinkron tetap disimpan) */
+          P().lastUpload = prevLU;
+          if (!save()) { P().layers.pop(); P().lastUpload = prevLU; return; }
+          parsedStore = null;
+        }
+      } else if (!save()) { P().layers.pop(); return; }
       var parts = [];
       Object.keys(layer.summary).forEach(function (sn) {
         var sm = layer.summary[sn];
         var colsTxt = Object.keys(sm.cols).map(function (c) { return c + ' ' + new Intl.NumberFormat('id-ID').format(sm.cols[c]) + ' sel'; }).join(', ');
-        parts.push(sn + ': ' + colsTxt + ' (' + new Intl.NumberFormat('id-ID').format(sm.matched) + ' barang cocok' + (sm.unmatched ? ', ' + sm.unmatched + ' nama tidak ada di daftar induk' : '') + ')');
+        parts.push(sn + ': ' + colsTxt + ' (' + new Intl.NumberFormat('id-ID').format(sm.matched) + ' barang cocok' + (sm.unmatched ? ', ' + sm.unmatched + ' nama tidak ada di daftar induk' : '') + (sm.autoAdded && sm.autoAdded.length ? ', +' + sm.autoAdded.length + ' obat berkode ditambahkan ke NON BPJS FORKIT' : '') + (sm.summedExtra ? ', ' + sm.summedExtra + ' baris kembar digabung (dijumlahkan)' : '') + ')');
       });
-      $('upStatus').textContent = 'Tersinkron ' + fmtTanggal(date) + ' dari ' + file.name + ' — ' + parts.join(' · ') + (skippedSheets.length ? ' · Sheet dilewati: ' + skippedSheets.join(', ') : '');
+      $('upStatus').textContent = 'Tersinkron ' + fmtTanggal(date) + ' dari ' + file.name + ' — ' + parts.join(' · ') + (skippedSheets.length ? ' · Sheet dilewati: ' + skippedSheets.join(', ') : '') + (parsedStore ? '' : ' (Catatan: file terlalu besar untuk disimpan di peramban — tombol Sinkronisasi Ulang tidak aktif untuk file ini.)');
       setLoading(true, 'Menyiapkan tampilan …');
       await nextFrame();
       render();
@@ -1218,8 +1335,65 @@ if (typeof module !== 'undefined' && module.exports) {
     });
   }
 
+  /* ---------- Sinkronisasi Ulang ----------
+     Terapkan aturan pencocokan terbaru ke salinan file terakhir yang di-upload,
+     tanpa upload ulang. Hasilnya menggantikan isi layer sinkronisasi file itu
+     (tanggal & nama file tetap); edit manual tetap menang seperti biasa. */
+  function refreshResync() {
+    var lu = P().lastUpload;
+    var btn = $('btnResync'), info = $('resyncInfo');
+    if (!btn || !info) return;
+    if (lu && lu.parsed) {
+      btn.disabled = false;
+      info.textContent = 'File terakhir: ' + lu.file + ' (' + fmtTanggal(lu.date) + '). Setelah aturan pencocokan diperbarui, tekan tombol ini untuk menerapkan ulang dari file yang sama.';
+    } else {
+      btn.disabled = true;
+      info.textContent = 'Belum ada file tersimpan untuk disinkronkan ulang — upload sekali, setelah itu file terakhir bisa disinkronkan ulang tanpa upload lagi.';
+    }
+  }
+
+  function resyncLast() {
+    var lu = P().lastUpload;
+    if (!lu || !lu.parsed) return;
+    var newSheets = {}, newSummary = {}, anyCols = false;
+    Object.keys(lu.parsed).forEach(function (msName) {
+      var ms = null;
+      EFF.forEach(function (s) { if (s.name === msName) ms = s; });
+      if (!ms) return;
+      var res = syncTarget(ms, lu.parsed[msName]);
+      var colCounts = {};
+      Object.keys(res.cols).forEach(function (c) { colCounts[c] = Object.keys(res.cols[c]).length; });
+      if (Object.keys(res.cols).length) { anyCols = true; newSheets[msName] = res.cols; }
+      newSummary[msName] = { matched: res.matchedRows, unmatched: res.unmatchedNames.length, cols: colCounts, ignored: res.ignoredCols, autoAdded: res.autoAdded || [], summedExtra: res.summedExtra || 0 };
+    });
+    if (!anyCols) {
+      $('upStatus').textContent = 'Sinkronisasi ulang dari ' + lu.file + ': masih belum ada kolom nilai yang cocok dengan daftar induk.';
+      return;
+    }
+    var layer = null;
+    P().layers.forEach(function (l) { if (l.id === lu.layerId) layer = l; });
+    if (!layer) {
+      layer = { id: 'L' + Date.now(), date: lu.date, file: lu.file, ts: Date.now(), sheets: {}, summary: {} };
+      P().layers.push(layer);
+      lu.layerId = layer.id;
+    }
+    layer.sheets = newSheets;
+    layer.summary = newSummary;
+    layer.ts = Date.now();
+    if (!save()) { $('upStatus').textContent = 'Sinkronisasi ulang gagal disimpan (penyimpanan peramban penuh).'; return; }
+    var parts = [];
+    Object.keys(newSummary).forEach(function (sn) {
+      var sm = newSummary[sn];
+      var colsTxt = Object.keys(sm.cols).map(function (c) { return c + ' ' + new Intl.NumberFormat('id-ID').format(sm.cols[c]) + ' sel'; }).join(', ');
+      parts.push(sn + ': ' + colsTxt + ' (' + new Intl.NumberFormat('id-ID').format(sm.matched) + ' barang cocok' + (sm.unmatched ? ', ' + sm.unmatched + ' nama tidak ada di daftar induk' : '') + (sm.autoAdded && sm.autoAdded.length ? ', +' + sm.autoAdded.length + ' obat berkode ditambahkan ke NON BPJS FORKIT' : '') + (sm.summedExtra ? ', ' + sm.summedExtra + ' baris kembar digabung (dijumlahkan)' : '') + ')');
+    });
+    $('upStatus').textContent = 'Sinkronisasi ulang selesai — aturan pencocokan terbaru diterapkan ke ' + lu.file + ' (' + fmtTanggal(lu.date) + ') — ' + parts.join(' · ');
+    render();
+  }
+
   /* ---------- render ---------- */
   function render() {
+    refreshResync();
     renderLayers();
     var sheet = masterSheet();
     var tabs = '';
@@ -1673,6 +1847,7 @@ if (typeof module !== 'undefined' && module.exports) {
         if (ev === 'drop' && e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
       });
     });
+    $('btnResync').addEventListener('click', resyncLast);
     $('modeLatest').addEventListener('click', function () { ui.mode = 'latest'; render(); });
     $('modeCompare').addEventListener('click', function () { ui.mode = 'compare'; render(); });
     $('selCol').addEventListener('change', function () { ui.col = $('selCol').value; ui.dateA = ''; ui.dateB = ''; render(); });
