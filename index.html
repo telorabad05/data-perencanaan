@@ -130,6 +130,8 @@
               background: #0e7490; color: #fff; cursor: pointer; }
   #btnLogin:hover { background: #155e75; }
   #btnSettings { float: right; }
+  #btnBackStart { float: right; margin-left: 8px; }
+  .startCatTitle { font-size: 15px; font-weight: 700; color: #9fc3cc; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 2px; }
   #settingsOverlay { position: fixed; inset: 0; background: rgba(5, 30, 40, .5); backdrop-filter: blur(2px);
                   display: none; align-items: center; justify-content: center; padding: 18px; z-index: 9000; }
   .setBtn { width: 100%; margin-top: 10px; padding: 11px; font-size: 15px; font-weight: bold; border: none;
@@ -231,7 +233,30 @@
     </div>
     <h1 class="startTitle">Data Perencanaan Obat</h1>
     <p class="startSub" id="startHello">Selamat datang — mau mulai dari mana?</p>
-    <div class="startMenu">
+    <div class="startMenu" id="startMenu1">
+      <button type="button" class="startItem" id="btnCatTahunan">
+        <span class="ic">📅</span>
+        <span><span class="tt">Data Perencanaan Tahunan</span><span class="ds">Perencanaan untuk satu tahun anggaran</span></span>
+        <span class="chev">›</span>
+      </button>
+      <button type="button" class="startItem" id="btnCatBulanan">
+        <span class="ic">🗓️</span>
+        <span><span class="tt">Data Perencanaan Bulanan</span><span class="ds">Perencanaan kebutuhan per bulan</span></span>
+        <span class="chev">›</span>
+      </button>
+      <button type="button" class="startItem" id="btnCatTambahan">
+        <span class="ic">➕</span>
+        <span><span class="tt">Data Perencanaan Tambahan</span><span class="ds">Perencanaan di luar rencana rutin</span></span>
+        <span class="chev">›</span>
+      </button>
+      <button type="button" class="startItem" id="btnStartLogout">
+        <span class="ic">🚪</span>
+        <span><span class="tt">Akhiri Sesi</span><span class="ds">Keluar dari akun di perangkat ini</span></span>
+        <span class="chev">›</span>
+      </button>
+    </div>
+    <div class="startMenu" id="startMenu2" style="display:none">
+      <div class="startCatTitle" id="startCatTitle">Data Perencanaan Tahunan</div>
       <button type="button" class="startItem" id="btnStartNew">
         <span class="ic">🆕</span>
         <span><span class="tt">Buat Data Baru</span><span class="ds">Mulai perencanaan kosong dari daftar induk</span></span>
@@ -239,12 +264,12 @@
       </button>
       <button type="button" class="startItem" id="btnStartContinue">
         <span class="ic">📂</span>
-        <span><span class="tt">Lanjutkan Data Sebelumnya</span><span class="ds">Buka data terakhir milik akunmu</span></span>
+        <span><span class="tt">Lanjutkan Data Sebelumnya</span><span class="ds">Buka data terakhir pada kategori ini</span></span>
         <span class="chev">›</span>
       </button>
-      <button type="button" class="startItem" id="btnStartLogout">
-        <span class="ic">🚪</span>
-        <span><span class="tt">Keluar</span><span class="ds">Akhiri sesi di perangkat ini</span></span>
+      <button type="button" class="startItem" id="btnStartBack">
+        <span class="ic">⬅</span>
+        <span><span class="tt">Kembali</span><span class="ds">Pilih kategori lain</span></span>
         <span class="chev">›</span>
       </button>
     </div>
@@ -263,6 +288,7 @@
 </div>
 <div class="wrap">
   <header class="band noprint">
+    <button type="button" id="btnBackStart" style="display:none">⬅ Balik ke halaman sebelumnya</button>
     <button type="button" id="btnSettings" style="display:none">⚙️ Pengaturan</button>
     <span id="whoAmI" style="float:right;margin-right:10px;font-size:13px;line-height:2"></span>
     <h1>💊 DATA PERENCANAAN OBAT</h1>
@@ -270,6 +296,7 @@
 
   <div class="card noprint">
     <h2>📋 Perencanaan</h2>
+    <p class="muted" style="margin:0 0 8px">Kategori aktif: <b id="catLabel">Tahunan</b> — untuk ganti kategori, pakai tombol "Balik ke halaman sebelumnya" di kanan atas.</p>
     <div class="rowflex">
       <label for="selPlanning">Perencanaan aktif:</label>
       <select id="selPlanning"></select>
@@ -1015,6 +1042,36 @@ if (typeof module !== 'undefined' && module.exports) {
   }
   if (!db.plannings.some(function (x) { return x.id === db.activeId; })) db.activeId = db.plannings[0].id;
 
+  /* Kategori perencanaan (v13, permintaan Hugo 2026-11-20): tahunan /
+     bulanan / tambahan. Setiap perencanaan berlabel kategori; daftar dan
+     perencanaan aktif selalu per kategori aktif. Master obat sementara
+     sama untuk semua kategori (master perencanaan utama = data sekarang)
+     sampai Hugo memberikan master bulanan/tambahan sendiri. */
+  var CATS = [
+    { id: 'tahunan', label: 'Tahunan', icon: '📅' },
+    { id: 'bulanan', label: 'Bulanan', icon: '🗓️' },
+    { id: 'tambahan', label: 'Tambahan', icon: '➕' }
+  ];
+  function catLabel(id) { var c = CATS.find(function (x) { return x.id === id; }); return c ? c.label : 'Tahunan'; }
+  function ensureCats() {
+    db.plannings.forEach(function (p) { if (!p.cat || !CATS.some(function (c) { return c.id === p.cat; })) p.cat = 'tahunan'; });
+    if (!db.activeCat || !CATS.some(function (c) { return c.id === db.activeCat; })) db.activeCat = 'tahunan';
+    if (!db.catLast || typeof db.catLast !== 'object') db.catLast = {};
+    var act = db.plannings.find(function (x) { return x.id === db.activeId; });
+    if (!act || act.cat !== db.activeCat) {
+      var cand = db.plannings.filter(function (x) { return x.cat === db.activeCat; });
+      if (!cand.length) {
+        var np = { id: 'P' + Date.now(), name: 'PERENCANAAN', layers: [], names: {}, added: [], seq: 0, deleted: [], cat: db.activeCat };
+        db.plannings.push(np); cand = [np];
+      }
+      var last = db.catLast[db.activeCat];
+      var tgt = cand.find(function (x) { return x.id === last; }) || cand[cand.length - 1];
+      db.activeId = tgt.id;
+    }
+    db.catLast[db.activeCat] = db.activeId;
+  }
+  ensureCats();
+
   /* Nama sheet induk berubah di v6 (PERENCANAAN OKT-DES 2026 -> PERENCANAAN):
      sesuaikan kunci sheet pada layer lama agar nilainya tetap terbaca. */
   (function remapSheetKeys() {
@@ -1176,10 +1233,12 @@ if (typeof module !== 'undefined' && module.exports) {
   function renderPlannings() {
     var sel = $('selPlanning');
     if (!sel) return;
-    sel.innerHTML = db.plannings.map(function (p) {
+    var list = db.plannings.filter(function (p) { return p.cat === db.activeCat; });
+    sel.innerHTML = list.map(function (p) {
       return '<option value="' + esc(p.id) + '"' + (p.id === P().id ? ' selected' : '') + '>' + esc(p.name) + '</option>';
     }).join('');
-    $('btnDelPlanning').disabled = db.plannings.length <= 1;
+    $('btnDelPlanning').disabled = list.length <= 1;
+    var cl = $('catLabel'); if (cl) cl.textContent = catLabel(db.activeCat);
   }
   async function newPlanning() {
     var nv = await showEditDialog('➕ Perencanaan Baru',
@@ -1188,26 +1247,31 @@ if (typeof module !== 'undefined' && module.exports) {
     if (nv === null) return;
     nv = nv.trim().toUpperCase();
     if (!nv) nv = 'PERENCANAAN';
-    var p = { id: 'P' + Date.now(), name: nv, layers: [], names: {}, added: [], seq: 0, deleted: [] };
+    var p = { id: 'P' + Date.now(), name: nv, layers: [], names: {}, added: [], seq: 0, deleted: [], cat: db.activeCat };
     db.plannings.push(p);
     db.activeId = p.id;
+    if (db.catLast) db.catLast[db.activeCat] = p.id;
     ui.col = ''; ui.dateA = ''; ui.dateB = '';
     refreshEff();
     save(); renderPlannings(); render();
     $('upStatus').textContent = 'Perencanaan baru "' + p.name + '" dibuat dan sekarang aktif. Upload file Excel untuk mulai mengisinya.';
   }
   function deletePlanning() {
-    if (db.plannings.length <= 1) return;
+    var list = db.plannings.filter(function (x) { return x.cat === db.activeCat; });
+    if (list.length <= 1) return;
     var p = P();
     if (!window.confirm('Hapus perencanaan "' + p.name + '" beserta seluruh data sinkron & editnya di perangkat ini? Tindakan ini tidak bisa dibatalkan.')) return;
     db.plannings = db.plannings.filter(function (x) { return x.id !== p.id; });
-    db.activeId = db.plannings[0].id;
+    var rest = db.plannings.filter(function (x) { return x.cat === db.activeCat; });
+    db.activeId = rest[rest.length - 1].id;
+    db.catLast[db.activeCat] = db.activeId;
     ui.col = ''; ui.dateA = ''; ui.dateB = '';
     refreshEff();
     save(); renderPlannings(); render();
   }
   function switchPlanning(id) {
     db.activeId = id;
+    if (db.catLast) db.catLast[db.activeCat] = id;
     ui.col = ''; ui.dateA = ''; ui.dateB = '';
     refreshEff();
     save(); renderPlannings(); render();
@@ -1449,15 +1513,18 @@ if (typeof module !== 'undefined' && module.exports) {
   function refreshAuthGate() {
     var ov = $('loginOverlay');
     var lb = $('btnSettings');
+    var bb = $('btnBackStart');
     if (HOSTED) { /* server sudah memeriksa login sebelum aplikasi dikirim */
       if (ov) ov.style.display = 'none';
       if (lb) lb.style.display = '';
+      if (bb) bb.style.display = '';
       applyRoleUI();
       return;
     }
     var ok = !!webToken();
     if (ov) ov.style.display = ok ? 'none' : 'flex';
     if (lb) lb.style.display = ok ? '' : 'none';
+    if (bb) bb.style.display = ok ? '' : 'none';
     var so = $('startOverlay');
     if (so && !ok) so.style.display = 'none'; /* belum login: layar awal sembunyi, login yang tampil */
     applyRoleUI();
@@ -1498,8 +1565,32 @@ if (typeof module !== 'undefined' && module.exports) {
   }
 
   function hideStart() { var o = $('startOverlay'); if (o) o.style.display = 'none'; }
-  function startContinue() { hideStart(); }
-  function startNew() { hideStart(); newPlanning(); }
+  /* Layar awal dua tingkat (v13): tingkat 1 pilih kategori perencanaan,
+     tingkat 2 pilih buat data baru / lanjutkan data sebelumnya. */
+  var startCat = null;
+  function showStartLevel(n) {
+    var so = $('startOverlay'); if (so) so.style.display = 'flex';
+    var m1 = $('startMenu1'), m2 = $('startMenu2');
+    if (m1) m1.style.display = n === 1 ? 'flex' : 'none';
+    if (m2) m2.style.display = n === 2 ? 'flex' : 'none';
+  }
+  function pickCategory(cat) {
+    startCat = cat;
+    var t = $('startCatTitle'); if (t) t.textContent = 'Data Perencanaan ' + catLabel(cat);
+    showStartLevel(2);
+  }
+  function enterCategory(cat, createNew) {
+    db.activeCat = cat;
+    ensureCats();
+    ui.col = ''; ui.dateA = ''; ui.dateB = '';
+    refreshEff();
+    save(); renderPlannings(); render();
+    hideStart();
+    if (createNew) newPlanning();
+  }
+  function backToStart() { startCat = null; showStartLevel(1); }
+  function startContinue() { enterCategory(startCat || db.activeCat, false); }
+  function startNew() { enterCategory(startCat || db.activeCat, true); }
   function openSettings() { var o = $('settingsOverlay'); if (o) o.style.display = 'flex'; pwdStatus(''); }
   function closeSettings() { var o = $('settingsOverlay'); if (o) o.style.display = 'none'; }
   function pwdStatus(t) { var s = $('pwdStatus'); if (s) s.textContent = t; }
@@ -1635,6 +1726,7 @@ if (typeof module !== 'undefined' && module.exports) {
     });
     if (!db.groups || typeof db.groups !== 'object') db.groups = {};
     if (!db.plannings.some(function (x) { return x.id === db.activeId; })) db.activeId = db.plannings[0].id;
+    ensureCats();
     refreshEff();
     save();
     cloudAdopting = false;
@@ -2390,6 +2482,11 @@ if (typeof module !== 'undefined' && module.exports) {
     if ($('btnStartNew')) $('btnStartNew').addEventListener('click', startNew);
     if ($('btnStartContinue')) $('btnStartContinue').addEventListener('click', startContinue);
     if ($('btnStartLogout')) $('btnStartLogout').addEventListener('click', doLogout);
+    if ($('btnCatTahunan')) $('btnCatTahunan').addEventListener('click', function () { pickCategory('tahunan'); });
+    if ($('btnCatBulanan')) $('btnCatBulanan').addEventListener('click', function () { pickCategory('bulanan'); });
+    if ($('btnCatTambahan')) $('btnCatTambahan').addEventListener('click', function () { pickCategory('tambahan'); });
+    if ($('btnStartBack')) $('btnStartBack').addEventListener('click', function () { showStartLevel(1); });
+    if ($('btnBackStart')) $('btnBackStart').addEventListener('click', backToStart);
     if ($('startHello') && currentUser()) $('startHello').textContent = 'Halo, ' + currentUser() + ' — mau mulai dari mana?';
     if ($('btnCloseSettings')) $('btnCloseSettings').addEventListener('click', closeSettings);
     if ($('settingsOverlay')) $('settingsOverlay').addEventListener('click', function (e) { if (e.target === $('settingsOverlay')) closeSettings(); });
