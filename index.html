@@ -1060,10 +1060,15 @@ if (typeof module !== 'undefined' && module.exports) {
   function dispName(rec) { return P().names[rec.id] || rec.name; }
   /* kategori tampilan: hasil edit pengguna (db.groups, berlaku di semua perencanaan) */
   function dispGroup(rec) { return db.groups[rec.id] || rec.group || ''; }
-  /* judul tampilan: baris judul terakhir mengikuti nama perencanaan aktif */
+  /* judul tampilan: baris judul terakhir mengikuti nama perencanaan aktif.
+     Untuk pengguna non-admin (mis. fatur), baris nama rumah sakit
+     disembunyikan dari hasil cetak & unduhan Excel. */
   function dispTitles(sheet) {
     var ts = (sheet.titles || []).slice();
     if (ts.length) ts[ts.length - 1] = String(P().name || ts[ts.length - 1]).toUpperCase();
+    if ((earlySession().role || '') !== 'admin') {
+      ts = ts.filter(function (t) { return !/wahidin/i.test(t); });
+    }
     return ts;
   }
 
@@ -1944,14 +1949,14 @@ if (typeof module !== 'undefined' && module.exports) {
 
   /* ---------- Data Terkini ---------- */
   /* Kolom tampilan Data Terkini mengikuti format dokumen perencanaan rumah sakit:
-     NO | Nama Barang | Kategori Barang | Harga | Stok Awal Oktober 2026 |
+     NO | Nama Barang | Kategori Barang | Harga | Stok Awal |
      Penerimaan (Jumlah/Harga) | Pemakaian (Jumlah/Harga — dihitung otomatis
      dari Stok Awal + Penerimaan - Stok Akhir) | Stok Akhir Instalasi Farmasi
      (Jumlah/Harga) | Estimasi Kebutuhan (Jumlah/Harga).
      Kolom Stok Opname per depo tidak dipakai lagi. */
   var DISPLAY_COLS = [
     { canon: 'HARGA', label: 'HARGA' },
-    { canon: 'STOK AWAL', label: 'Stok Awal Oktober 2026' },
+    { canon: 'STOK AWAL', label: 'Stok Awal' },
     { canon: 'PENERIMAAN JUMLAH', group: 'Penerimaan', sub: 'Jumlah' },
     { canon: 'PENERIMAAN HARGA', group: 'Penerimaan', sub: 'Harga' },
     { canon: 'PEMAKAIAN JUMLAH', group: 'Pemakaian', sub: 'Jumlah', computed: true },
@@ -2014,7 +2019,7 @@ if (typeof module !== 'undefined' && module.exports) {
     var aoa = [];
     dispTitles(sheet).forEach(function (t) { aoa.push([t]); });
     aoa.push([]);
-    aoa.push(['NO', 'NAMA BARANG', 'KATEGORI BARANG', 'HARGA', 'Stok Awal Oktober 2026', 'Penerimaan', '', 'Pemakaian', '', 'Stok Akhir Instalasi Farmasi', '', 'Estimasi Kebutuhan', '']);
+    aoa.push(['NO', 'NAMA BARANG', 'KATEGORI BARANG', 'HARGA', 'Stok Awal', 'Penerimaan', '', 'Pemakaian', '', 'Stok Akhir Instalasi Farmasi', '', 'Estimasi Kebutuhan', '']);
     aoa.push(['', '', '', '', '', 'Jumlah', 'Harga', 'Jumlah', 'Harga', 'Jumlah', 'Harga', 'Jumlah', 'Harga']);
     var secNo = 0; /* nomor urut dihitung per bagian dari urutan tampil */
     sheet.rows.forEach(function (rec) {
@@ -2207,7 +2212,7 @@ if (typeof module !== 'undefined' && module.exports) {
     });
     /* header dua baris (baris 6-7) */
     var HR = 5; /* indeks 0-based baris header pertama */
-    var singles = [[0, 'NO'], [1, 'Nama Barang'], [2, 'Kategori Barang'], [3, 'Harga'], [4, 'Stok Awal Oktober 2026']];
+    var singles = [[0, 'NO'], [1, 'Nama Barang'], [2, 'Kategori Barang'], [3, 'Harga'], [4, 'Stok Awal']];
     singles.forEach(function (pr) {
       put(HR, pr[0], pr[1], sHead);
       put(HR + 1, pr[0], null, sHead);
