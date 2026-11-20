@@ -172,7 +172,7 @@
         <option value="all">Semua sheet</option>
       </select>
     </div>
-    <p class="muted" style="margin:8px 0 0">Nama barang &amp; kategori barang mengikuti daftar induk dan <b>tidak berubah</b>. File yang di-upload boleh berisi kolom nilai apa saja — HARGA, STOK AWAL, PENERIMAAN (Jumlah/Harga), STOK AKHIR INSTALASI FARMASI (Jumlah/Harga), ESTIMASI KEBUTUHAN (Jumlah/Harga) — tiap kolom bisa di-upload tersendiri; hanya kolom yang terisi yang disinkronkan, dicocokkan menurut nama barang. <b>Kolom Harga yang berpasangan dengan Jumlah (Penerimaan Harga, Stok Akhir Harga, Estimasi Kebutuhan Harga) tidak perlu diisi</b> — otomatis dihitung dari Jumlah × Harga satuan, jadi cukup masukkan data Jumlah saja. Kolom Pemakaian juga tidak perlu diisi — dihitung otomatis dari Stok Awal + Penerimaan − Stok Akhir Instalasi Farmasi. Sel yang kosong di file berarti tidak ada pembaruan untuk sel itu. File ekspor dari sistem lain juga bisa langsung di-upload — kolom dikenali dari nama kolomnya, bukan posisinya, dan nama barang dicocokkan walau ada akhiran seperti "Ecat"/"Ekse". Nama format merek seperti "Arimidex (Anastrozole) Tab 1 mg" dicocokkan ke nama generik di dalam kurung. Bila satu obat muncul beberapa baris (mis. file FIFO per batch), nilainya <b>dijumlahkan</b> — khusus Harga satuan dipakai nilai terakhir. Nama berkode (Ekse)/(PS) yang belum ada di daftar induk <b>otomatis ditambahkan ke bagian NON BPJS FORKIT</b> (bertanda BARU, bisa dihapus dengan tombol 🗑). Setelah aturan pencocokan diperbarui, file terakhir yang di-upload bisa diterapkan ulang dengan tombol <b>🔄 Sinkronisasi Ulang</b> di bawah ini — tanpa upload lagi.</p>
+    <p class="muted" style="margin:8px 0 0">Nama barang &amp; kategori barang mengikuti daftar induk dan <b>tidak berubah</b>. File yang di-upload boleh berisi kolom nilai apa saja — HARGA, STOK AWAL, PENERIMAAN (Jumlah/Harga), STOK AKHIR INSTALASI FARMASI (Jumlah/Harga), ESTIMASI KEBUTUHAN (Jumlah/Harga) — tiap kolom bisa di-upload tersendiri; hanya kolom yang terisi yang disinkronkan, dicocokkan menurut nama barang. <b>Kolom Harga yang berpasangan dengan Jumlah (Penerimaan Harga, Stok Akhir Harga, Estimasi Kebutuhan Harga) tidak perlu diisi</b> — otomatis dihitung dari Jumlah × Harga satuan, jadi cukup masukkan data Jumlah saja. Kolom Pemakaian juga tidak perlu diisi — dihitung otomatis dari Stok Awal + Penerimaan − Stok Akhir Instalasi Farmasi. Sel yang kosong di file berarti tidak ada pembaruan untuk sel itu. File ekspor dari sistem lain juga bisa langsung di-upload — kolom dikenali dari nama kolomnya, bukan posisinya, dan nama barang dicocokkan walau ada akhiran seperti "Ecat"/"Ekse". Nama format merek seperti "Arimidex (Anastrozole) Tab 1 mg" dicocokkan ke nama generik di dalam kurung. Bila satu obat muncul beberapa baris (mis. file FIFO per batch), nilainya <b>dijumlahkan</b> — khusus Harga satuan dipakai nilai terakhir. Nama berkode yang belum ada di daftar induk <b>otomatis ditambahkan — hanya obat tablet</b>: kode (Ekse)/(PS) masuk bagian NON BPJS FORKIT, akhiran Ecat masuk bagian FORNAS (bertanda BARU, bisa dihapus dengan tombol 🗑; tombol 🧹 di atas tabel menghapus massal obat tambahan non-tablet). Setelah aturan pencocokan diperbarui, file terakhir yang di-upload bisa diterapkan ulang dengan tombol <b>🔄 Sinkronisasi Ulang</b> di bawah ini — tanpa upload lagi.</p>
     <div id="upStatus"></div>
     <div class="rowflex">
       <button type="button" id="btnResync" disabled>🔄 Sinkronisasi Ulang</button>
@@ -206,6 +206,7 @@
         <button type="button" id="btnPrint">🖨️ Cetak</button>
         <button type="button" id="btnExcel">⬇️ Unduh Excel</button>
         <button type="button" id="btnAdd">➕ Tambah Obat</button>
+        <button type="button" id="btnClean">🧹 Hapus Obat Tambahan Non-Tablet</button>
       </div>
       <p class="muted" style="margin:8px 0 0">Klik nama obat untuk mengubah namanya, dan klik sel nilai mana pun untuk mengubah datanya — perubahan tersimpan di perangkat ini sebagai "Edit manual" (ada di Riwayat Sinkronisasi, bisa dibatalkan dari sana). Nama hasil edit ikut tampil di hasil cetak &amp; unduhan Excel; file yang di-upload tetap dicocokkan memakai nama asli dari daftar induk. Tombol ➕ Tambah Obat menambah obat baru ke bagian mana pun (mis. NARKOTIKA) — obat baru masuk sesuai urutan abjad, diberi tanda BARU, dan nomor urut menyesuaikan otomatis. Tombol 🗑 di samping nama obat menghapus baris itu dari perencanaan ini saja (obat induk bisa dikembalikan dari daftar "Obat terhapus" di bawah tabel).</p>
     </div>
@@ -1081,6 +1082,20 @@ if (typeof module !== 'undefined' && module.exports) {
     $('upStatus').textContent = 'Baris obat "' + nm + '" dihapus dari perencanaan "' + P().name + '".' +
       (wasAdded ? '' : ' Bila berubah pikiran, kembalikan dari daftar "Obat terhapus" di bawah tabel.');
   }
+  /* Hapus massal obat tambahan non-tablet dari perencanaan ini (permintaan Hugo
+     2026-11-20: untuk project ini selain obat tablet jangan ditambahkan). */
+  function cleanupNonTablet() {
+    var victims = P().added.filter(function (a) { return !isTabletRec(a.name, a.group); });
+    if (!victims.length) { $('upStatus').textContent = 'Tidak ada obat tambahan non-tablet di perencanaan "' + P().name + '".'; return; }
+    if (!window.confirm('Hapus ' + victims.length + ' obat tambahan non-tablet dari perencanaan "' + P().name + '"? Obat tablet dan obat dari daftar induk tidak terpengaruh.')) return;
+    var ids = {};
+    victims.forEach(function (a) { ids[a.id] = 1; delete P().names[a.id]; });
+    P().added = P().added.filter(function (a) { return !ids[a.id]; });
+    refreshEff();
+    save(); render();
+    $('upStatus').textContent = victims.length + ' obat tambahan non-tablet dihapus dari perencanaan "' + P().name + '". Obat tambahan tablet tetap dipertahankan.';
+  }
+
   /* daftar obat induk yang terhapus dari perencanaan ini + tombol kembalikan */
   function renderDeleted() {
     var wrap = $('deletedWrap');
@@ -1193,19 +1208,29 @@ if (typeof module !== 'undefined' && module.exports) {
   }
   function nextFrame() { return new Promise(function (res) { requestAnimationFrame(function () { setTimeout(res, 20); }); }); }
 
-  /* Obat berkode sumber (Ekse)/(PS) yang belum ada di daftar induk otomatis
-     ditambahkan ke bagian NON BPJS FORKIT (keputusan Hugo 2026-11-20; di daftar
-     induk hampir semua nama berkode memang tinggal di bagian itu). */
-  var AUTOADD_SECTION = 'NON BPJS  FORKIT';
+  /* Obat berkode sumber yang belum ada di daftar induk otomatis ditambahkan,
+     HANYA untuk obat tablet (keputusan Hugo 2026-11-20 — selain tablet tidak
+     ditambahkan). Tujuan bagian menurut kodenya: Ecat -> FORNAS;
+     (Ekse)/(PS) -> NON BPJS FORKIT. */
   function hasSourceCode(name) {
     var s = String(name == null ? '' : name);
     return /\(\s*(EKSE|ECAT|PS)\s*\)/i.test(s) || /\b(EKSE|ECAT)\s*$/i.test(s.trim());
+  }
+  function autoAddSectionFor(name) {
+    var s = String(name == null ? '' : name);
+    if (/\(\s*ECAT\s*\)/i.test(s) || /\bECAT\s*$/i.test(s.trim())) return 'FORNAS';
+    return 'NON BPJS  FORKIT';
+  }
+  function isTabletRec(name, group) {
+    if (normKey(group || '') === 'TABLET') return true;
+    return /\bTAB\b|\bTABLET\b/.test(normKey(name || ''));
   }
   function autoAddCoded(res) {
     var addedNames = [];
     (res.unmatchedRows || []).forEach(function (rec) {
       var nm = normText(rec.name);
       if (!nm || !hasSourceCode(rec.name)) return;
+      if (!isTabletRec(nm, rec.group)) return;
       var mk = normMatch(nm), gk = genericKey(nm);
       var exists = P().added.some(function (a) { return normMatch(a.name) === mk; });
       if (!exists) EFF.forEach(function (s) {
@@ -1216,10 +1241,40 @@ if (typeof module !== 'undefined' && module.exports) {
       });
       if (exists) return;
       P().seq = (P().seq || 0) + 1;
-      P().added.push({ id: 'U' + P().seq, name: nm, section: AUTOADD_SECTION, group: normText(rec.group) || '' });
+      P().added.push({ id: 'U' + P().seq, name: nm, section: autoAddSectionFor(nm), group: normText(rec.group) || '' });
       addedNames.push(nm);
     });
     return addedNames;
+  }
+  /* Salinan ramping hasil parse untuk disimpan (tombol Sinkronisasi Ulang):
+     hanya kolom identitas + kolom yang dikenal daftar induk, hanya baris bagian
+     & data, dan hanya baris data yang punya nilai — file besar (ribuan baris x
+     belasan kolom depo) menyusut jauh di bawah batas penyimpanan peramban. */
+  function slimParsed(parsed, ms) {
+    var masterCols = {};
+    ms.headers.forEach(function (h) { masterCols[canonCol(h)] = true; });
+    var keep = [];
+    parsed.headers.forEach(function (h, ci) {
+      if (ci === parsed.nameCol || ci === parsed.noCol || ci === parsed.groupCol) { keep.push(ci); return; }
+      var cn = canonCol(h);
+      if (cn && masterCols[cn]) keep.push(ci);
+    });
+    var headers = keep.map(function (ci) { return parsed.headers[ci]; });
+    var rows = [];
+    parsed.rows.forEach(function (rec) {
+      if (rec.t === 'g') { rows.push({ t: 'g', no: rec.no, name: rec.name, group: rec.group, cells: [] }); return; }
+      if (rec.t !== 'd') return;
+      var hasVal = false;
+      var cells = keep.map(function (ci) {
+        var v = rec.cells[ci];
+        if (ci !== parsed.nameCol && ci !== parsed.noCol && ci !== parsed.groupCol && v != null && (normText(v) !== '' || isNumVal(v))) hasVal = true;
+        return v === undefined ? null : v;
+      });
+      if (!hasVal) return;
+      rows.push({ t: 'd', no: rec.no, name: rec.name, group: rec.group, cells: cells });
+    });
+    return { name: parsed.name, headers: headers, rows: rows,
+      nameCol: keep.indexOf(parsed.nameCol), noCol: keep.indexOf(parsed.noCol), groupCol: keep.indexOf(parsed.groupCol) };
   }
   /* Sinkronkan ke satu sheet induk; bila ada nama berkode yang belum dikenal,
      tambahkan dulu sebagai obat baru lalu sinkronkan ulang agar nilainya ikut. */
@@ -1264,7 +1319,7 @@ if (typeof module !== 'undefined' && module.exports) {
         var parsed = parseSheetAOA(name, aoa);
         if (!parsed) { skippedSheets.push(name); return; }
         targetsFor(name).forEach(function (ms) {
-          parsedByTarget[ms.name] = parsed;
+          parsedByTarget[ms.name] = slimParsed(parsed, ms);
           var res = syncTarget(ms, parsed);
           var colCounts = {};
           Object.keys(res.cols).forEach(function (c) { colCounts[c] = Object.keys(res.cols[c]).length; });
@@ -1291,7 +1346,7 @@ if (typeof module !== 'undefined' && module.exports) {
          besar untuk penyimpanan peramban, salinan tidak disimpan. */
       var parsedStore = null;
       try {
-        if (JSON.stringify(parsedByTarget).length <= 2000000) {
+        if (JSON.stringify(parsedByTarget).length <= 3500000) {
           parsedStore = { file: file.name, date: date, layerId: null, parsed: parsedByTarget };
         }
       } catch (e) { parsedStore = null; }
@@ -1320,7 +1375,7 @@ if (typeof module !== 'undefined' && module.exports) {
       Object.keys(layer.summary).forEach(function (sn) {
         var sm = layer.summary[sn];
         var colsTxt = Object.keys(sm.cols).map(function (c) { return c + ' ' + new Intl.NumberFormat('id-ID').format(sm.cols[c]) + ' sel'; }).join(', ');
-        parts.push(sn + ': ' + colsTxt + ' (' + new Intl.NumberFormat('id-ID').format(sm.matched) + ' barang cocok' + (sm.unmatched ? ', ' + sm.unmatched + ' nama tidak ada di daftar induk' : '') + (sm.autoAdded && sm.autoAdded.length ? ', +' + sm.autoAdded.length + ' obat berkode ditambahkan ke NON BPJS FORKIT' : '') + (sm.summedExtra ? ', ' + sm.summedExtra + ' baris kembar digabung (dijumlahkan)' : '') + ')');
+        parts.push(sn + ': ' + colsTxt + ' (' + new Intl.NumberFormat('id-ID').format(sm.matched) + ' barang cocok' + (sm.unmatched ? ', ' + sm.unmatched + ' nama tidak ada di daftar induk' : '') + (sm.autoAdded && sm.autoAdded.length ? ', +' + sm.autoAdded.length + ' obat berkode ditambahkan otomatis' : '') + (sm.summedExtra ? ', ' + sm.summedExtra + ' baris kembar digabung (dijumlahkan)' : '') + ')');
       });
       $('upStatus').textContent = 'Tersinkron ' + fmtTanggal(date) + ' dari ' + file.name + ' — ' + parts.join(' · ') + (skippedSheets.length ? ' · Sheet dilewati: ' + skippedSheets.join(', ') : '') + (parsedStore ? '' : ' (Catatan: file terlalu besar untuk disimpan di peramban — tombol Sinkronisasi Ulang tidak aktif untuk file ini.)');
       setLoading(true, 'Menyiapkan tampilan …');
@@ -1385,7 +1440,7 @@ if (typeof module !== 'undefined' && module.exports) {
     Object.keys(newSummary).forEach(function (sn) {
       var sm = newSummary[sn];
       var colsTxt = Object.keys(sm.cols).map(function (c) { return c + ' ' + new Intl.NumberFormat('id-ID').format(sm.cols[c]) + ' sel'; }).join(', ');
-      parts.push(sn + ': ' + colsTxt + ' (' + new Intl.NumberFormat('id-ID').format(sm.matched) + ' barang cocok' + (sm.unmatched ? ', ' + sm.unmatched + ' nama tidak ada di daftar induk' : '') + (sm.autoAdded && sm.autoAdded.length ? ', +' + sm.autoAdded.length + ' obat berkode ditambahkan ke NON BPJS FORKIT' : '') + (sm.summedExtra ? ', ' + sm.summedExtra + ' baris kembar digabung (dijumlahkan)' : '') + ')');
+      parts.push(sn + ': ' + colsTxt + ' (' + new Intl.NumberFormat('id-ID').format(sm.matched) + ' barang cocok' + (sm.unmatched ? ', ' + sm.unmatched + ' nama tidak ada di daftar induk' : '') + (sm.autoAdded && sm.autoAdded.length ? ', +' + sm.autoAdded.length + ' obat berkode ditambahkan otomatis' : '') + (sm.summedExtra ? ', ' + sm.summedExtra + ' baris kembar digabung (dijumlahkan)' : '') + ')');
     });
     $('upStatus').textContent = 'Sinkronisasi ulang selesai — aturan pencocokan terbaru diterapkan ke ' + lu.file + ' (' + fmtTanggal(lu.date) + ') — ' + parts.join(' · ');
     render();
@@ -1864,6 +1919,7 @@ if (typeof module !== 'undefined' && module.exports) {
     });
     $('editOverlay').addEventListener('click', function (ev) { if (ev.target === $('editOverlay')) closeEditDialog(null); });
     $('btnAdd').addEventListener('click', openAddDialog);
+    $('btnClean').addEventListener('click', cleanupNonTablet);
     $('addOk').addEventListener('click', submitAdd);
     $('addCancel').addEventListener('click', closeAddDialog);
     $('addOverlay').addEventListener('click', function (ev) { if (ev.target === $('addOverlay')) closeAddDialog(); });
