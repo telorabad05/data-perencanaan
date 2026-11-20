@@ -135,11 +135,33 @@
   .setBtn { width: 100%; margin-top: 10px; padding: 11px; font-size: 15px; font-weight: bold; border: none;
             border-radius: 10px; color: #fff; cursor: pointer; }
   #pwdStatus { color: #0e7490; font-size: 13px; min-height: 18px; margin: 8px 0 0; }
+  #startOverlay { position: fixed; inset: 0; z-index: 8000; overflow: auto;
+                  background: radial-gradient(1200px 700px at 50% -10%, #164e63 0%, #0b2530 55%, #07181f 100%);
+                  display: flex; align-items: center; justify-content: center; padding: 18px; }
+  .startCard { width: min(94vw, 430px); text-align: center; color: #e6f4f6; margin: auto; }
+  .startLogo { width: 104px; height: 104px; margin: 0 auto 14px; border-radius: 50%; background: rgba(255,255,255,.06);
+               border: 1px solid rgba(255,255,255,.14); display: flex; align-items: center; justify-content: center;
+               box-shadow: 0 0 0 6px rgba(45,212,191,.08), 0 18px 40px rgba(0,0,0,.45); }
+  .startTitle { font-size: 26px; font-weight: 800; letter-spacing: .4px; margin: 0 0 4px; color: #fff; }
+  .startSub { color: #9fc3cc; font-size: 14px; margin: 0 0 26px; }
+  .startMenu { display: flex; flex-direction: column; gap: 12px; }
+  .startItem { display: flex; align-items: center; gap: 14px; text-align: left; width: 100%; padding: 15px 16px;
+               background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12); border-radius: 18px;
+               color: #fff; cursor: pointer; font-family: inherit; }
+  .startItem:hover { background: rgba(255,255,255,.1); }
+  .startItem .ic { width: 46px; height: 46px; flex: 0 0 46px; border-radius: 13px; background: rgba(255,255,255,.09);
+                   display: flex; align-items: center; justify-content: center; font-size: 22px; }
+  .startItem .tt { display: block; font-size: 16.5px; font-weight: 700; }
+  .startItem .ds { display: block; font-size: 12.5px; color: #9fc3cc; margin-top: 1px; }
+  .startItem .chev { margin-left: auto; color: #7fa6b0; font-size: 20px; }
+  .startFoot { margin-top: 30px; display: flex; flex-direction: column; align-items: center; gap: 7px; color: #7fa6b0; }
+  .startSince { letter-spacing: 4px; font-size: 11.5px; font-weight: 700; }
   @page { size: landscape; margin: 10mm; }
   @media print {
     .noprint { display: none !important; }
     #loadingOverlay { display: none !important; }
     #loginOverlay { display: none !important; }
+    #startOverlay { display: none !important; }
     #settingsOverlay { display: none !important; }
     #editOverlay { display: none !important; }
     #addOverlay { display: none !important; }
@@ -192,6 +214,51 @@
     <button type="button" id="btnChangePass" class="setBtn" style="background:#0e7490">💾 Simpan Kata Sandi</button>
     <button type="button" id="btnLogout" class="setBtn" style="background:#b91c1c">🔒 Keluar</button>
     <button type="button" id="btnCloseSettings" class="setBtn" style="background:#64748b">Tutup</button>
+  </div>
+</div>
+<div id="startOverlay">
+  <div class="startCard">
+    <div class="startLogo">
+      <svg width="58" height="58" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <defs><linearGradient id="lgStart" x1="0" y1="0" x2="64" y2="64"><stop offset="0" stop-color="#2dd4bf"/><stop offset="1" stop-color="#0e7490"/></linearGradient></defs>
+        <rect x="6" y="6" width="52" height="52" rx="16" fill="url(#lgStart)"/>
+        <g transform="rotate(45 32 30)">
+          <rect x="19" y="24" width="26" height="12" rx="6" fill="#ffffff"/>
+          <path d="M32 24h7a6 6 0 0 1 0 12h-7z" fill="#99f6e4"/>
+        </g>
+        <path d="M16 46h9l3-6 4 10 3-4h13" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h1 class="startTitle">Data Perencanaan Obat</h1>
+    <p class="startSub" id="startHello">Selamat datang — mau mulai dari mana?</p>
+    <div class="startMenu">
+      <button type="button" class="startItem" id="btnStartNew">
+        <span class="ic">🆕</span>
+        <span><span class="tt">Buat Data Baru</span><span class="ds">Mulai perencanaan kosong dari daftar induk</span></span>
+        <span class="chev">›</span>
+      </button>
+      <button type="button" class="startItem" id="btnStartContinue">
+        <span class="ic">📂</span>
+        <span><span class="tt">Lanjutkan Data Sebelumnya</span><span class="ds">Buka data terakhir milik akunmu</span></span>
+        <span class="chev">›</span>
+      </button>
+      <button type="button" class="startItem" id="btnStartLogout">
+        <span class="ic">🚪</span>
+        <span><span class="tt">Keluar</span><span class="ds">Akhiri sesi di perangkat ini</span></span>
+        <span class="chev">›</span>
+      </button>
+    </div>
+    <div class="startFoot">
+      <svg width="30" height="30" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <rect x="6" y="6" width="52" height="52" rx="16" fill="#155e75"/>
+        <g transform="rotate(45 32 30)">
+          <rect x="19" y="24" width="26" height="12" rx="6" fill="#e6f4f6"/>
+          <path d="M32 24h7a6 6 0 0 1 0 12h-7z" fill="#5eead4"/>
+        </g>
+        <path d="M16 46h9l3-6 4 10 3-4h13" stroke="#e6f4f6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div class="startSince">SINCE 2026</div>
+    </div>
   </div>
 </div>
 <div class="wrap">
@@ -871,7 +938,6 @@ if (typeof module !== 'undefined' && module.exports) {
 <script>/* Data Perencanaan Obat v2 — daftar induk tetap + sinkronisasi per kolom */
 (function () {
   'use strict';
-  var DBKEY = 'dataPerencanaanObat.v3'; /* v3: format Perencanaan (data format lama v2 tidak dipakai lagi) */
   var MASTER = EMBEDDED_MASTER;
   /* Lapisan penyimpanan: localStorage bila tersedia; bila diblokir (mis. di
      dalam bingkai Google Apps Script) jatuh ke memori — data tetap aman
@@ -886,8 +952,31 @@ if (typeof module !== 'undefined' && module.exports) {
       return { get: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; }, set: function (k, v) { mem[k] = String(v); }, remove: function (k) { delete mem[k]; } };
     }
   })();
+  /* Identitas sesi — data lokal & cloud TERPISAH per pengguna.
+     Mode Google: teks penanda diganti server saat aplikasi dikirim.
+     Edisi web: dibaca dari sesi tersimpan di perangkat. */
+  var SESSION_TOKEN = '__SESSION_TOKEN__';
+  var SESSION_USER = '__SESSION_USER__';
+  var SESSION_ROLE = '__SESSION_ROLE__';
+  var HOSTED = (typeof google !== 'undefined' && !!google.script && !!google.script.run);
+  var SESSIONKEY = 'dataPerencanaanSession.v1';
+  var TOKENKEY = 'dataPerencanaanToken.v1';
+  function earlySession() {
+    if (HOSTED) return { token: SESSION_TOKEN, user: SESSION_USER, role: SESSION_ROLE };
+    try { var s = JSON.parse(store.get(SESSIONKEY) || 'null'); if (s && s.token) return s; } catch (e) {}
+    return { token: '', user: '', role: '' };
+  }
+  var APP_USER = earlySession().user || '';
+  var DBKEY = 'dataPerencanaanObat.v3' + (APP_USER ? '.' + APP_USER : '');
   var db = { plannings: [], activeId: null, groups: {} };
   try { var raw = store.get(DBKEY); if (raw) db = JSON.parse(raw); } catch (e) { db = { plannings: [], activeId: null, groups: {} }; }
+  /* Migrasi: data lokal lama (kunci tanpa nama pengguna) menjadi milik admin. */
+  if (!raw && APP_USER === 'telorabad') {
+    try {
+      var legacy = store.get('dataPerencanaanObat.v3');
+      if (legacy) { db = JSON.parse(legacy); store.set(DBKEY, legacy); }
+    } catch (e) {}
+  }
   if (!db || typeof db !== 'object') db = { plannings: [], activeId: null, groups: {} };
   if (!Array.isArray(db.plannings)) db.plannings = [];
   /* migrasi bentuk awal v3 (layers di tingkat atas) menjadi perencanaan pertama.
@@ -1351,6 +1440,8 @@ if (typeof module !== 'undefined' && module.exports) {
     var ok = !!webToken();
     if (ov) ov.style.display = ok ? 'none' : 'flex';
     if (lb) lb.style.display = ok ? '' : 'none';
+    var so = $('startOverlay');
+    if (so && !ok) so.style.display = 'none'; /* belum login: layar awal sembunyi, login yang tampil */
     applyRoleUI();
   }
   function tryLogin() {
@@ -1364,10 +1455,10 @@ if (typeof module !== 'undefined' && module.exports) {
       .then(function (res) {
         if (res && res.ok && res.token) {
           try { store.set(SESSIONKEY, JSON.stringify({ token: res.token, user: res.user || u, role: res.role || '' })); } catch (e) {}
-          $('loginErr').textContent = '';
-          $('inPass').value = '';
-          refreshAuthGate();
-          cloudPull(false);
+          $('loginErr').textContent = 'Berhasil masuk — memuat ulang …';
+          /* Muat ulang agar aplikasi mulai sebagai pengguna ini:
+             data lokal per pengguna + layar awal. */
+          setTimeout(function () { location.reload(); }, 350);
         } else {
           $('loginErr').textContent = (res && res.error) || 'Username atau kata sandi salah. Coba lagi.';
         }
@@ -1388,6 +1479,9 @@ if (typeof module !== 'undefined' && module.exports) {
     location.reload();
   }
 
+  function hideStart() { var o = $('startOverlay'); if (o) o.style.display = 'none'; }
+  function startContinue() { hideStart(); }
+  function startNew() { hideStart(); newPlanning(); }
   function openSettings() { var o = $('settingsOverlay'); if (o) o.style.display = 'flex'; pwdStatus(''); }
   function closeSettings() { var o = $('settingsOverlay'); if (o) o.style.display = 'none'; }
   function pwdStatus(t) { var s = $('pwdStatus'); if (s) s.textContent = t; }
@@ -1421,23 +1515,11 @@ if (typeof module !== 'undefined' && module.exports) {
   try { var craw = store.get(CLOUDKEY); if (craw) cloudCfg = JSON.parse(craw) || cloudCfg; } catch (e) {}
   if (!cloudCfg || typeof cloudCfg !== 'object') cloudCfg = { url: '', key: '' };
   /* Mode Google (Apps Script): aplikasi ini dilayani oleh jembatan itu
-     sendiri, jadi koneksi cloud otomatis — tanpa isi link/kunci manual. */
-  var HOSTED = (typeof google !== 'undefined' && !!google.script && !!google.script.run);
-  /* Token sesi login dari server Google — teks penanda ini diganti server
-     dengan token asli saat aplikasi dikirim setelah login. Di edisi GitHub
-     tidak dipakai. */
-  var SESSION_TOKEN = '__SESSION_TOKEN__';
-  var SESSION_USER = '__SESSION_USER__';
-  var SESSION_ROLE = '__SESSION_ROLE__';
+     sendiri, jadi koneksi cloud otomatis — tanpa isi link/kunci manual.
+     Konstanta sesi & HOSTED didefinisikan di bagian atas berkas. */
   var APP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyidWwpuB8nASD_xRDPeE1x2mp_fU8QdGjozFyfANOo_U-_BUUXu63jvhYHhAR5BeKfug/exec';
   var BRIDGE_URL = APP_EXEC_URL; /* jembatan yang sama untuk edisi web */
-  var TOKENKEY = 'dataPerencanaanToken.v1';
-  var SESSIONKEY = 'dataPerencanaanSession.v1';
-  function webSession() {
-    if (HOSTED) return { token: SESSION_TOKEN, user: SESSION_USER, role: SESSION_ROLE };
-    try { var s = JSON.parse(store.get(SESSIONKEY) || 'null'); if (s && s.token) return s; } catch (e) {}
-    return { token: '', user: '', role: '' };
-  }
+  function webSession() { return earlySession(); }
   function webToken() { return webSession().token; }
   function currentUser() { return webSession().user || ''; }
   function isAdmin() { return webSession().role === 'admin'; }
@@ -2287,6 +2369,10 @@ if (typeof module !== 'undefined' && module.exports) {
     $('btnLogout').addEventListener('click', doLogout);
     if ($('btnChangePass')) $('btnChangePass').addEventListener('click', doChangePass);
     if ($('btnSettings')) $('btnSettings').addEventListener('click', openSettings);
+    if ($('btnStartNew')) $('btnStartNew').addEventListener('click', startNew);
+    if ($('btnStartContinue')) $('btnStartContinue').addEventListener('click', startContinue);
+    if ($('btnStartLogout')) $('btnStartLogout').addEventListener('click', doLogout);
+    if ($('startHello') && currentUser()) $('startHello').textContent = 'Halo, ' + currentUser() + ' — mau mulai dari mana?';
     if ($('btnCloseSettings')) $('btnCloseSettings').addEventListener('click', closeSettings);
     if ($('settingsOverlay')) $('settingsOverlay').addEventListener('click', function (e) { if (e.target === $('settingsOverlay')) closeSettings(); });
     refreshAuthGate();
