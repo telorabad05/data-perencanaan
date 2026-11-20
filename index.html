@@ -261,7 +261,7 @@
     <p id="tblNote" class="note"></p>
     <div id="deletedWrap"></div>
     <div id="printFoot"></div>
-    <p class="note noprint">Catatan: hasil sinkronisasi tersimpan di browser perangkat ini (bukan cloud), sama seperti situs laporan sebelumnya. Mode Berdampingan membandingkan satu kolom antara dua tanggal sinkronisasinya.</p>
+    <p class="note noprint">Catatan: hasil sinkronisasi tersimpan di browser perangkat ini dan — bila Data Online terhubung — juga di Google Sheets milikmu, jadi bisa dibuka dari perangkat mana saja. Mode Berdampingan membandingkan satu kolom antara dua tanggal sinkronisasinya.</p>
   </div>
 </div>
 
@@ -848,8 +848,21 @@ if (typeof module !== 'undefined' && module.exports) {
   'use strict';
   var DBKEY = 'dataPerencanaanObat.v3'; /* v3: format Perencanaan (data format lama v2 tidak dipakai lagi) */
   var MASTER = EMBEDDED_MASTER;
+  /* Lapisan penyimpanan: localStorage bila tersedia; bila diblokir (mis. di
+     dalam bingkai Google Apps Script) jatuh ke memori — data tetap aman
+     karena di mode itu sinkronisasi cloud adalah sumber utamanya. */
+  var store = (function () {
+    try {
+      var t = '__dp_test__';
+      localStorage.setItem(t, '1'); localStorage.removeItem(t);
+      return { get: function (k) { return localStorage.getItem(k); }, set: function (k, v) { localStorage.setItem(k, v); }, remove: function (k) { localStorage.removeItem(k); } };
+    } catch (e) {
+      var mem = {};
+      return { get: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; }, set: function (k, v) { mem[k] = String(v); }, remove: function (k) { delete mem[k]; } };
+    }
+  })();
   var db = { plannings: [], activeId: null, groups: {} };
-  try { var raw = localStorage.getItem(DBKEY); if (raw) db = JSON.parse(raw); } catch (e) { db = { plannings: [], activeId: null, groups: {} }; }
+  try { var raw = store.get(DBKEY); if (raw) db = JSON.parse(raw); } catch (e) { db = { plannings: [], activeId: null, groups: {} }; }
   if (!db || typeof db !== 'object') db = { plannings: [], activeId: null, groups: {} };
   if (!Array.isArray(db.plannings)) db.plannings = [];
   /* migrasi bentuk awal v3 (layers di tingkat atas) menjadi perencanaan pertama.
@@ -1234,7 +1247,7 @@ if (typeof module !== 'undefined' && module.exports) {
   }
   function save() {
     if (dbHasContent()) db.cloudTs = Date.now();
-    try { localStorage.setItem(DBKEY, JSON.stringify(db)); }
+    try { store.set(DBKEY, JSON.stringify(db)); }
     catch (e) { alert('Penyimpanan browser penuh. Hapus sebagian riwayat sinkronisasi lama, lalu coba lagi.'); return false; }
     scheduleCloudPush();
     return true;
@@ -1300,7 +1313,7 @@ if (typeof module !== 'undefined' && module.exports) {
   var AUTH_USER = 'telorabad';
   var AUTH_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
   var AUTHKEY = 'dataPerencanaanAuth.v1';
-  function isAuthed() { try { return localStorage.getItem(AUTHKEY) === 'ok'; } catch (e) { return false; } }
+  function isAuthed() { try { return store.get(AUTHKEY) === 'ok'; } catch (e) { return false; } }
   function refreshAuthGate() {
     var ov = $('loginOverlay');
     if (ov) ov.style.display = isAuthed() ? 'none' : 'flex';
@@ -1310,7 +1323,7 @@ if (typeof module !== 'undefined' && module.exports) {
   function tryLogin() {
     var u = $('inUser').value.trim(), p = $('inPass').value;
     if (u === AUTH_USER && sha256(p) === AUTH_HASH) {
-      try { localStorage.setItem(AUTHKEY, 'ok'); } catch (e) {}
+      try { store.set(AUTHKEY, 'ok'); } catch (e) {}
       $('loginErr').textContent = '';
       $('inPass').value = '';
       refreshAuthGate();
@@ -1319,7 +1332,7 @@ if (typeof module !== 'undefined' && module.exports) {
     }
   }
   function doLogout() {
-    try { localStorage.removeItem(AUTHKEY); } catch (e) {}
+    try { store.remove(AUTHKEY); } catch (e) {}
     location.reload();
   }
 
@@ -1329,8 +1342,13 @@ if (typeof module !== 'undefined' && module.exports) {
      perangkat (bukan di dalam db, agar tidak ikut tersebar bersama data). */
   var CLOUDKEY = 'dataPerencanaanCloud.v1';
   var cloudCfg = { url: '', key: '' };
-  try { var craw = localStorage.getItem(CLOUDKEY); if (craw) cloudCfg = JSON.parse(craw) || cloudCfg; } catch (e) {}
+  try { var craw = store.get(CLOUDKEY); if (craw) cloudCfg = JSON.parse(craw) || cloudCfg; } catch (e) {}
   if (!cloudCfg || typeof cloudCfg !== 'object') cloudCfg = { url: '', key: '' };
+  /* Mode Google (Apps Script): aplikasi ini dilayani oleh jembatan itu
+     sendiri, jadi koneksi cloud otomatis — tanpa isi link/kunci manual. */
+  var HOSTED = (typeof google !== 'undefined' && !!google.script && !!google.script.run);
+  var HOSTED_KEY = 'DP-A7Ya2GeYVKoGVOnF';
+  if (HOSTED) cloudCfg = { url: 'apps-script', key: HOSTED_KEY };
   var cloudTimer = null, cloudBusy = false, cloudAdopting = false;
   function cloudStatus(txt) { var el = $('cloudStatus'); if (el) el.textContent = txt; }
   function cloudStamp(ts) { return ts ? new Date(ts).toLocaleString('id-ID') : ''; }
@@ -1343,21 +1361,25 @@ if (typeof module !== 'undefined' && module.exports) {
     if (!cloudCfg.url || cloudBusy) return;
     cloudBusy = true;
     cloudStatus('☁️ Mengirim data ke cloud …');
+    var done = function (res) {
+      cloudBusy = false;
+      if (res && res.ok) cloudStatus('☁️ Terhubung — data tersimpan online · ' + cloudStamp(db.cloudTs));
+      else cloudStatus('☁️ Gagal menyimpan online: ' + ((res && res.error) || 'jawaban tidak dikenal') + ' (data lokal aman).');
+    };
+    var fail = function () { cloudBusy = false; cloudStatus('☁️ Tidak dapat terhubung ke cloud (data lokal aman; dicoba lagi pada perubahan berikutnya).'); };
+    if (HOSTED) {
+      google.script.run.withSuccessHandler(done).withFailureHandler(fail).apiSave(cloudCfg.key, JSON.stringify(db), db.cloudTs || 0);
+      return;
+    }
     fetch(cloudCfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ key: cloudCfg.key, action: 'save', data: JSON.stringify(db), ts: db.cloudTs || 0 }) })
       .then(function (r) { return r.json(); })
-      .then(function (res) {
-        cloudBusy = false;
-        if (res && res.ok) cloudStatus('☁️ Terhubung — data tersimpan online · ' + cloudStamp(db.cloudTs));
-        else cloudStatus('☁️ Gagal menyimpan online: ' + ((res && res.error) || 'jawaban tidak dikenal') + ' (data lokal aman).');
-      })
-      .catch(function () { cloudBusy = false; cloudStatus('☁️ Tidak dapat terhubung ke cloud (data lokal aman; dicoba lagi pada perubahan berikutnya).'); });
+      .then(done)
+      .catch(fail);
   }
   function cloudPull(manual) {
     if (!cloudCfg.url || !cloudCfg.key) { if (manual) cloudStatus('Isi Link Jembatan dan Kunci dulu, lalu klik Hubungkan.'); return; }
     cloudStatus('☁️ Memeriksa data online …');
-    fetch(cloudCfg.url + (cloudCfg.url.indexOf('?') >= 0 ? '&' : '?') + 'key=' + encodeURIComponent(cloudCfg.key) + '&action=load')
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
+    var got = function (res) {
         if (!res || !res.ok) { cloudStatus('☁️ Gagal memuat dari cloud: ' + ((res && res.error) || 'jawaban tidak dikenal') + ' (data lokal dipakai).'); return; }
         if (!res.data) {
           cloudStatus('☁️ Cloud masih kosong — data perangkat ini dikirim sebagai data awal.');
@@ -1376,8 +1398,16 @@ if (typeof module !== 'undefined' && module.exports) {
           return;
         }
         cloudStatus('☁️ Terhubung — data perangkat ini sudah yang terbaru · ' + cloudStamp(db.cloudTs || res.ts));
-      })
-      .catch(function () { cloudStatus('☁️ Tidak dapat terhubung ke cloud (data lokal dipakai).'); });
+    };
+    var fail = function () { cloudStatus('☁️ Tidak dapat terhubung ke cloud (data lokal dipakai).'); };
+    if (HOSTED) {
+      google.script.run.withSuccessHandler(got).withFailureHandler(fail).apiLoad(cloudCfg.key);
+      return;
+    }
+    fetch(cloudCfg.url + (cloudCfg.url.indexOf('?') >= 0 ? '&' : '?') + 'key=' + encodeURIComponent(cloudCfg.key) + '&action=load')
+      .then(function (r) { return r.json(); })
+      .then(got)
+      .catch(fail);
   }
   function adoptCloudDb(obj) {
     cloudAdopting = true;
@@ -1400,12 +1430,20 @@ if (typeof module !== 'undefined' && module.exports) {
     render();
   }
   function cloudConnect() {
+    if (HOSTED) { cloudPull(true); return; }
     cloudCfg = { url: $('inCloudUrl').value.trim(), key: $('inCloudKey').value.trim() };
-    try { localStorage.setItem(CLOUDKEY, JSON.stringify(cloudCfg)); } catch (e) {}
+    try { store.set(CLOUDKEY, JSON.stringify(cloudCfg)); } catch (e) {}
     if (!cloudCfg.url || !cloudCfg.key) { cloudStatus('Link Jembatan dan Kunci wajib diisi.'); return; }
     cloudPull(true);
   }
   function refreshCloudUI() {
+    if (HOSTED) {
+      if ($('inCloudUrl')) { $('inCloudUrl').value = 'Otomatis — aplikasi Google (Apps Script)'; $('inCloudUrl').disabled = true; }
+      if ($('inCloudKey')) { $('inCloudKey').value = '••••••••'; $('inCloudKey').disabled = true; }
+      if ($('btnCloudConnect')) $('btnCloudConnect').textContent = 'Periksa Koneksi';
+      cloudStatus('☁️ Mode Google: aplikasi ini berjalan di Google Apps Script dan terhubung otomatis ke Google Sheets pendampingnya.');
+      return;
+    }
     if ($('inCloudUrl') && cloudCfg.url && !$('inCloudUrl').value) $('inCloudUrl').value = cloudCfg.url;
     if ($('inCloudKey') && cloudCfg.key && !$('inCloudKey').value) $('inCloudKey').value = cloudCfg.key;
     if (!cloudCfg.url) cloudStatus('Belum terhubung — isi Link Jembatan + Kunci dari Google Apps Script milikmu, lalu klik Hubungkan.');
