@@ -1316,20 +1316,36 @@ if (typeof module !== 'undefined' && module.exports) {
   function isAuthed() { try { return store.get(AUTHKEY) === 'ok'; } catch (e) { return false; } }
   function refreshAuthGate() {
     var ov = $('loginOverlay');
-    if (ov) ov.style.display = isAuthed() ? 'none' : 'flex';
     var lb = $('btnLogout');
-    if (lb) lb.style.display = isAuthed() ? '' : 'none';
+    if (HOSTED) { /* server sudah memeriksa login sebelum aplikasi dikirim */
+      if (ov) ov.style.display = 'none';
+      if (lb) lb.style.display = '';
+      return;
+    }
+    var ok = !!webToken();
+    if (ov) ov.style.display = ok ? 'none' : 'flex';
+    if (lb) lb.style.display = ok ? '' : 'none';
   }
   function tryLogin() {
+    /* Login diperiksa SERVER Google (kedua edisi): username/kata sandi
+       ditukar token sesi; tanpa token, data online tidak bisa diambil. */
     var u = $('inUser').value.trim(), p = $('inPass').value;
-    if (u === AUTH_USER && sha256(p) === AUTH_HASH) {
-      try { store.set(AUTHKEY, 'ok'); } catch (e) {}
-      $('loginErr').textContent = '';
-      $('inPass').value = '';
-      refreshAuthGate();
-    } else {
-      $('loginErr').textContent = 'Username atau kata sandi salah. Coba lagi.';
-    }
+    if (!u || !p) { $('loginErr').textContent = 'Isi username dan kata sandi dulu.'; return; }
+    $('loginErr').textContent = 'Memeriksa ke server …';
+    fetch(BRIDGE_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'login', user: u, pass: p }) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res && res.ok && res.token) {
+          try { store.set(TOKENKEY, res.token); } catch (e) {}
+          $('loginErr').textContent = '';
+          $('inPass').value = '';
+          refreshAuthGate();
+          cloudPull(false);
+        } else {
+          $('loginErr').textContent = (res && res.error) || 'Username atau kata sandi salah. Coba lagi.';
+        }
+      })
+      .catch(function () { $('loginErr').textContent = 'Tidak dapat terhubung ke server. Periksa internet, lalu coba lagi.'; });
   }
   function doLogout() {
     if (HOSTED) {
@@ -1339,7 +1355,9 @@ if (typeof module !== 'undefined' && module.exports) {
       setTimeout(backToLogin, 250);
       return;
     }
-    try { store.remove(AUTHKEY); } catch (e) {}
+    var t = webToken();
+    try { store.remove(TOKENKEY); } catch (e) {}
+    if (t) { try { fetch(BRIDGE_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'logout', token: t }) }).catch(function () {}); } catch (e) {} }
     location.reload();
   }
 
@@ -1359,25 +1377,36 @@ if (typeof module !== 'undefined' && module.exports) {
      tidak dipakai. */
   var SESSION_TOKEN = '__SESSION_TOKEN__';
   var APP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyidWwpuB8nASD_xRDPeE1x2mp_fU8QdGjozFyfANOo_U-_BUUXu63jvhYHhAR5BeKfug/exec';
+  var BRIDGE_URL = APP_EXEC_URL; /* jembatan yang sama untuk edisi web */
+  var TOKENKEY = 'dataPerencanaanToken.v1';
+  function webToken() { try { return store.get(TOKENKEY) || ''; } catch (e) { return ''; } }
+  function sesiExpired_() {
+    cloudStatus('🔒 Sesi berakhir — silakan login ulang.');
+    if (HOSTED) { setTimeout(backToLogin, 1200); return; }
+    try { store.remove(TOKENKEY); } catch (e) {}
+    refreshAuthGate();
+  }
   /* Kembali ke halaman login Google: arahkan bingkai ke alamat /exec
      (location.reload di dalam bingkai Apps Script bisa tampil putih). */
   function backToLogin() { try { window.location.href = APP_EXEC_URL; } catch (e) { try { location.reload(); } catch (x) {} } }
   if (HOSTED) cloudCfg = { url: 'apps-script', key: '' };
+  if (!HOSTED && !cloudCfg.url) cloudCfg = { url: BRIDGE_URL, key: '' };
   var cloudTimer = null, cloudBusy = false, cloudAdopting = false;
   function cloudStatus(txt) { var el = $('cloudStatus'); if (el) el.textContent = txt; }
   function cloudStamp(ts) { return ts ? new Date(ts).toLocaleString('id-ID') : ''; }
   function scheduleCloudPush() {
-    if (!cloudCfg || !cloudCfg.url || !cloudCfg.key || cloudAdopting) return;
+    if (!cloudCfg || !cloudCfg.url || (!HOSTED && !webToken()) || cloudAdopting) return;
     if (cloudTimer) clearTimeout(cloudTimer);
     cloudTimer = setTimeout(cloudPush, 1500);
   }
   function cloudPush() {
     if (!cloudCfg.url || cloudBusy) return;
+    if (!HOSTED && !webToken()) return;
     cloudBusy = true;
     cloudStatus('☁️ Mengirim data ke cloud …');
     var done = function (res) {
       cloudBusy = false;
-      if (res && res.error === 'SESI') { cloudStatus('🔒 Sesi berakhir — silakan login ulang.'); setTimeout(backToLogin, 1200); return; }
+      if (res && res.error === 'SESI') { sesiExpired_(); return; }
       if (res && res.ok) cloudStatus('☁️ Terhubung — data tersimpan online · ' + cloudStamp(db.cloudTs));
       else cloudStatus('☁️ Gagal menyimpan online: ' + ((res && res.error) || 'jawaban tidak dikenal') + ' (data lokal aman).');
     };
@@ -1386,16 +1415,16 @@ if (typeof module !== 'undefined' && module.exports) {
       google.script.run.withSuccessHandler(done).withFailureHandler(fail).apiSave(SESSION_TOKEN, JSON.stringify(db), db.cloudTs || 0);
       return;
     }
-    fetch(cloudCfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ key: cloudCfg.key, action: 'save', data: JSON.stringify(db), ts: db.cloudTs || 0 }) })
+    fetch(cloudCfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ token: webToken(), action: 'save', data: JSON.stringify(db), ts: db.cloudTs || 0 }) })
       .then(function (r) { return r.json(); })
       .then(done)
       .catch(fail);
   }
   function cloudPull(manual) {
-    if (!cloudCfg.url || (!HOSTED && !cloudCfg.key)) { if (manual) cloudStatus('Isi Link Jembatan dan Kunci dulu, lalu klik Hubungkan.'); return; }
+    if (!cloudCfg.url || (!HOSTED && !webToken())) { if (manual) cloudStatus('Login dulu dengan username & kata sandi untuk memakai data online.'); return; }
     cloudStatus('☁️ Memeriksa data online …');
     var got = function (res) {
-        if (res && res.error === 'SESI') { cloudStatus('🔒 Sesi berakhir — silakan login ulang.'); setTimeout(backToLogin, 1200); return; }
+        if (res && res.error === 'SESI') { sesiExpired_(); return; }
         if (!res || !res.ok) { cloudStatus('☁️ Gagal memuat dari cloud: ' + ((res && res.error) || 'jawaban tidak dikenal') + ' (data lokal dipakai).'); return; }
         if (!res.data) {
           cloudStatus('☁️ Cloud masih kosong — data perangkat ini dikirim sebagai data awal.');
@@ -1420,7 +1449,7 @@ if (typeof module !== 'undefined' && module.exports) {
       google.script.run.withSuccessHandler(got).withFailureHandler(fail).apiLoad(SESSION_TOKEN);
       return;
     }
-    fetch(cloudCfg.url + (cloudCfg.url.indexOf('?') >= 0 ? '&' : '?') + 'key=' + encodeURIComponent(cloudCfg.key) + '&action=load')
+    fetch(cloudCfg.url + (cloudCfg.url.indexOf('?') >= 0 ? '&' : '?') + 'action=load&token=' + encodeURIComponent(webToken()))
       .then(function (r) { return r.json(); })
       .then(got)
       .catch(fail);
@@ -1445,13 +1474,7 @@ if (typeof module !== 'undefined' && module.exports) {
     renderPlannings();
     render();
   }
-  function cloudConnect() {
-    if (HOSTED) { cloudPull(true); return; }
-    cloudCfg = { url: $('inCloudUrl').value.trim(), key: $('inCloudKey').value.trim() };
-    try { store.set(CLOUDKEY, JSON.stringify(cloudCfg)); } catch (e) {}
-    if (!cloudCfg.url || !cloudCfg.key) { cloudStatus('Link Jembatan dan Kunci wajib diisi.'); return; }
-    cloudPull(true);
-  }
+  function cloudConnect() { cloudPull(true); }
   function refreshCloudUI() {
     if (HOSTED) {
       if ($('inCloudUrl')) { $('inCloudUrl').value = 'Otomatis — aplikasi Google (Apps Script)'; $('inCloudUrl').disabled = true; }
@@ -1460,9 +1483,10 @@ if (typeof module !== 'undefined' && module.exports) {
       cloudStatus('☁️ Mode Google: aplikasi ini berjalan di Google Apps Script dan terhubung otomatis ke Google Sheets pendampingnya.');
       return;
     }
-    if ($('inCloudUrl') && cloudCfg.url && !$('inCloudUrl').value) $('inCloudUrl').value = cloudCfg.url;
-    if ($('inCloudKey') && cloudCfg.key && !$('inCloudKey').value) $('inCloudKey').value = cloudCfg.key;
-    if (!cloudCfg.url) cloudStatus('Belum terhubung — isi Link Jembatan + Kunci dari Google Apps Script milikmu, lalu klik Hubungkan.');
+    if ($('inCloudUrl')) { $('inCloudUrl').value = 'Otomatis — server Google perencanaan'; $('inCloudUrl').disabled = true; }
+    if ($('inCloudKey')) { $('inCloudKey').value = '••••••••'; $('inCloudKey').disabled = true; }
+    if ($('btnCloudConnect')) $('btnCloudConnect').textContent = 'Periksa Koneksi';
+    cloudStatus(webToken() ? '☁️ Data online aktif — perubahan tersimpan otomatis ke Google Sheets.' : '☁️ Login dulu (username & kata sandi) untuk mengaktifkan data online.');
   }
   function todayISO() {
     var d = new Date();
@@ -2205,7 +2229,7 @@ if (typeof module !== 'undefined' && module.exports) {
     $('btnCloudConnect').addEventListener('click', cloudConnect);
     $('btnCloudPull').addEventListener('click', function () { cloudPull(true); });
     refreshCloudUI();
-    if (cloudCfg.url && (HOSTED || cloudCfg.key)) cloudPull(false);
+    if (cloudCfg.url && (HOSTED || webToken())) cloudPull(false);
     $('addOk').addEventListener('click', submitAdd);
     $('addCancel').addEventListener('click', closeAddDialog);
     $('addOverlay').addEventListener('click', function (ev) { if (ev.target === $('addOverlay')) closeAddDialog(); });
