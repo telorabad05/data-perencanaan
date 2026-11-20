@@ -159,6 +159,20 @@
   </div>
 
   <div class="card noprint">
+    <h2>☁️ Data Online (Google Sheets)</h2>
+    <div class="rowflex">
+      <label for="inCloudUrl">Link Jembatan:</label>
+      <input type="url" id="inCloudUrl" placeholder="https://script.google.com/macros/s/…/exec" style="flex:1;min-width:240px">
+      <label for="inCloudKey">Kunci:</label>
+      <input type="text" id="inCloudKey" style="width:170px">
+      <button type="button" id="btnCloudConnect">Hubungkan</button>
+      <button type="button" id="btnCloudPull">⬇️ Ambil dari Cloud</button>
+    </div>
+    <div id="cloudStatus" class="muted" style="margin-top:8px"></div>
+    <p class="muted" style="margin:8px 0 0">Bila terhubung, semua data perencanaan (hasil upload, edit manual, obat tambahan) tersimpan juga di Google Sheets milikmu dan bisa dibuka dari perangkat mana saja dengan link + kunci yang sama. Setiap perubahan otomatis terkirim ke cloud; saat aplikasi dibuka, data cloud yang lebih baru otomatis dimuat. Yang terakhir menyimpan adalah yang berlaku. Tanpa koneksi, aplikasi tetap bekerja dengan data lokal perangkat ini.</p>
+  </div>
+
+  <div class="card noprint">
     <h2>📤 Upload Data Baru (Excel)</h2>
     <div id="dropZone"><span class="dz-icon">📥</span>Klik di sini atau seret file Excel (.xlsx / .xls / .csv) ke kotak ini.</div>
     <input type="file" id="inFile" accept=".xlsx,.xls,.csv" style="display:none">
@@ -1184,9 +1198,103 @@ if (typeof module !== 'undefined' && module.exports) {
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function dbHasContent() {
+    return db.plannings.some(function (p) { return (p.layers && p.layers.length) || (p.added && p.added.length); });
+  }
   function save() {
-    try { localStorage.setItem(DBKEY, JSON.stringify(db)); return true; }
+    if (dbHasContent()) db.cloudTs = Date.now();
+    try { localStorage.setItem(DBKEY, JSON.stringify(db)); }
     catch (e) { alert('Penyimpanan browser penuh. Hapus sebagian riwayat sinkronisasi lama, lalu coba lagi.'); return false; }
+    scheduleCloudPush();
+    return true;
+  }
+
+  /* ---------- Data Online (Google Sheets) ----------
+     Seluruh db dikirim ke jembatan Apps Script milik pengguna; yang terakhir
+     menyimpan berlaku (berdasarkan db.cloudTs). Link + kunci disimpan per
+     perangkat (bukan di dalam db, agar tidak ikut tersebar bersama data). */
+  var CLOUDKEY = 'dataPerencanaanCloud.v1';
+  var cloudCfg = { url: '', key: '' };
+  try { var craw = localStorage.getItem(CLOUDKEY); if (craw) cloudCfg = JSON.parse(craw) || cloudCfg; } catch (e) {}
+  if (!cloudCfg || typeof cloudCfg !== 'object') cloudCfg = { url: '', key: '' };
+  var cloudTimer = null, cloudBusy = false, cloudAdopting = false;
+  function cloudStatus(txt) { var el = $('cloudStatus'); if (el) el.textContent = txt; }
+  function cloudStamp(ts) { return ts ? new Date(ts).toLocaleString('id-ID') : ''; }
+  function scheduleCloudPush() {
+    if (!cloudCfg || !cloudCfg.url || !cloudCfg.key || cloudAdopting) return;
+    if (cloudTimer) clearTimeout(cloudTimer);
+    cloudTimer = setTimeout(cloudPush, 1500);
+  }
+  function cloudPush() {
+    if (!cloudCfg.url || cloudBusy) return;
+    cloudBusy = true;
+    cloudStatus('☁️ Mengirim data ke cloud …');
+    fetch(cloudCfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ key: cloudCfg.key, action: 'save', data: JSON.stringify(db), ts: db.cloudTs || 0 }) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        cloudBusy = false;
+        if (res && res.ok) cloudStatus('☁️ Terhubung — data tersimpan online · ' + cloudStamp(db.cloudTs));
+        else cloudStatus('☁️ Gagal menyimpan online: ' + ((res && res.error) || 'jawaban tidak dikenal') + ' (data lokal aman).');
+      })
+      .catch(function () { cloudBusy = false; cloudStatus('☁️ Tidak dapat terhubung ke cloud (data lokal aman; dicoba lagi pada perubahan berikutnya).'); });
+  }
+  function cloudPull(manual) {
+    if (!cloudCfg.url || !cloudCfg.key) { if (manual) cloudStatus('Isi Link Jembatan dan Kunci dulu, lalu klik Hubungkan.'); return; }
+    cloudStatus('☁️ Memeriksa data online …');
+    fetch(cloudCfg.url + (cloudCfg.url.indexOf('?') >= 0 ? '&' : '?') + 'key=' + encodeURIComponent(cloudCfg.key) + '&action=load')
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res || !res.ok) { cloudStatus('☁️ Gagal memuat dari cloud: ' + ((res && res.error) || 'jawaban tidak dikenal') + ' (data lokal dipakai).'); return; }
+        if (!res.data) {
+          cloudStatus('☁️ Cloud masih kosong — data perangkat ini dikirim sebagai data awal.');
+          cloudPush();
+          return;
+        }
+        if ((res.ts || 0) > (db.cloudTs || 0)) {
+          var obj = null;
+          try { obj = JSON.parse(res.data); } catch (e) { obj = null; }
+          if (obj && Array.isArray(obj.plannings) && obj.plannings.length) {
+            adoptCloudDb(obj);
+            cloudStatus('☁️ Data online dimuat (lebih baru · ' + cloudStamp(res.ts) + '). Semua perangkat kini memakai data yang sama.');
+            return;
+          }
+          cloudStatus('☁️ Data online tidak terbaca — data lokal dipakai.');
+          return;
+        }
+        cloudStatus('☁️ Terhubung — data perangkat ini sudah yang terbaru · ' + cloudStamp(db.cloudTs || res.ts));
+      })
+      .catch(function () { cloudStatus('☁️ Tidak dapat terhubung ke cloud (data lokal dipakai).'); });
+  }
+  function adoptCloudDb(obj) {
+    cloudAdopting = true;
+    db = obj;
+    if (!Array.isArray(db.plannings) || !db.plannings.length) db.plannings = [{ id: 'P1', name: 'PERENCANAAN', layers: [], names: {}, added: [], seq: 0, deleted: [] }];
+    db.plannings.forEach(function (p) {
+      if (!Array.isArray(p.layers)) p.layers = [];
+      if (!p.names || typeof p.names !== 'object') p.names = {};
+      if (!Array.isArray(p.added)) p.added = [];
+      if (!Array.isArray(p.deleted)) p.deleted = [];
+      if (!p.seq) p.seq = 0;
+      if (!p.name) p.name = 'PERENCANAAN';
+    });
+    if (!db.groups || typeof db.groups !== 'object') db.groups = {};
+    if (!db.plannings.some(function (x) { return x.id === db.activeId; })) db.activeId = db.plannings[0].id;
+    refreshEff();
+    save();
+    cloudAdopting = false;
+    renderPlannings();
+    render();
+  }
+  function cloudConnect() {
+    cloudCfg = { url: $('inCloudUrl').value.trim(), key: $('inCloudKey').value.trim() };
+    try { localStorage.setItem(CLOUDKEY, JSON.stringify(cloudCfg)); } catch (e) {}
+    if (!cloudCfg.url || !cloudCfg.key) { cloudStatus('Link Jembatan dan Kunci wajib diisi.'); return; }
+    cloudPull(true);
+  }
+  function refreshCloudUI() {
+    if ($('inCloudUrl') && cloudCfg.url && !$('inCloudUrl').value) $('inCloudUrl').value = cloudCfg.url;
+    if ($('inCloudKey') && cloudCfg.key && !$('inCloudKey').value) $('inCloudKey').value = cloudCfg.key;
+    if (!cloudCfg.url) cloudStatus('Belum terhubung — isi Link Jembatan + Kunci dari Google Apps Script milikmu, lalu klik Hubungkan.');
   }
   function todayISO() {
     var d = new Date();
@@ -1920,6 +2028,10 @@ if (typeof module !== 'undefined' && module.exports) {
     $('editOverlay').addEventListener('click', function (ev) { if (ev.target === $('editOverlay')) closeEditDialog(null); });
     $('btnAdd').addEventListener('click', openAddDialog);
     $('btnClean').addEventListener('click', cleanupNonTablet);
+    $('btnCloudConnect').addEventListener('click', cloudConnect);
+    $('btnCloudPull').addEventListener('click', function () { cloudPull(true); });
+    refreshCloudUI();
+    if (cloudCfg.url && cloudCfg.key) cloudPull(false);
     $('addOk').addEventListener('click', submitAdd);
     $('addCancel').addEventListener('click', closeAddDialog);
     $('addOverlay').addEventListener('click', function (ev) { if (ev.target === $('addOverlay')) closeAddDialog(); });
