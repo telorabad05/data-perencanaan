@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Data Perencanaan Obat — Instalasi Farmasi RSUP Dr. Wahidin Sudirohusodo</title>
+<title>Data Perencanaan Obat</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: "Segoe UI", system-ui, Arial, Helvetica, sans-serif; color: #10222b; margin: 0;
@@ -162,7 +162,7 @@
   <div class="loginCard">
     <div class="loginIcon">🔐</div>
     <div class="loginTitle">Data Perencanaan Obat</div>
-    <p class="loginSub">Instalasi Farmasi RSUP Dr. Wahidin Sudirohusodo<br>Masuk dulu untuk melihat data.</p>
+    <p class="loginSub">Masuk dulu untuk melihat data.</p>
     <label for="inUser">Username</label>
     <input type="text" id="inUser" autocomplete="username" placeholder="username">
     <label for="inPass">Kata Sandi</label>
@@ -174,8 +174,8 @@
 <div class="wrap">
   <header class="band noprint">
     <button type="button" id="btnLogout" style="display:none">🔒 Keluar</button>
+    <span id="whoAmI" style="float:right;margin-right:10px;font-size:13px;line-height:2"></span>
     <h1>💊 DATA PERENCANAAN OBAT</h1>
-    <p>Perencanaan Obat — Instalasi Farmasi RSUP Dr. Wahidin Sudirohusodo, Makassar</p>
   </header>
 
   <div class="card noprint">
@@ -189,7 +189,7 @@
     <p class="muted" style="margin:8px 0 0">Setiap perencanaan punya data sendiri (hasil upload, edit, dan obat tambahan tidak tercampur). Beralih perencanaan tidak menghapus apa pun — data perencanaan lain tetap tersimpan di perangkat ini dan bisa dibuka lagi kapan saja. Nama perencanaan menjadi judul di file Excel hasil unduhan.</p>
   </div>
 
-  <div class="card noprint">
+  <div class="card noprint" id="cloudCard">
     <h2>☁️ Data Online (Google Sheets)</h2>
     <div class="rowflex">
       <label for="inCloudUrl">Link Jembatan:</label>
@@ -201,6 +201,21 @@
     </div>
     <div id="cloudStatus" class="muted" style="margin-top:8px"></div>
     <p class="muted" style="margin:8px 0 0">Bila terhubung, semua data perencanaan (hasil upload, edit manual, obat tambahan) tersimpan juga di Google Sheets milikmu dan bisa dibuka dari perangkat mana saja dengan link + kunci yang sama. Setiap perubahan otomatis terkirim ke cloud; saat aplikasi dibuka, data cloud yang lebih baru otomatis dimuat. Yang terakhir menyimpan adalah yang berlaku. Tanpa koneksi, aplikasi tetap bekerja dengan data lokal perangkat ini.</p>
+  </div>
+
+  <div class="card noprint" id="pwdCard">
+    <h2>🔑 Ganti Kata Sandi</h2>
+    <div class="rowflex">
+      <label for="inOldPass">Kata Sandi Lama:</label>
+      <input type="password" id="inOldPass" autocomplete="current-password" style="width:170px">
+      <label for="inNewPass">Kata Sandi Baru:</label>
+      <input type="password" id="inNewPass" autocomplete="new-password" style="width:170px">
+      <label for="inNewPass2">Ulangi Baru:</label>
+      <input type="password" id="inNewPass2" autocomplete="new-password" style="width:170px">
+      <button type="button" id="btnChangePass">Simpan Kata Sandi</button>
+    </div>
+    <div id="pwdStatus" class="muted" style="margin-top:8px"></div>
+    <p class="muted" style="margin:8px 0 0">Kata sandi tersimpan di server Google dalam bentuk hash (tidak bisa dibaca siapa pun) dan berlaku di kedua alamat aplikasi. Minimal 6 karakter.</p>
   </div>
 
   <div class="card noprint">
@@ -1320,11 +1335,13 @@ if (typeof module !== 'undefined' && module.exports) {
     if (HOSTED) { /* server sudah memeriksa login sebelum aplikasi dikirim */
       if (ov) ov.style.display = 'none';
       if (lb) lb.style.display = '';
+      applyRoleUI();
       return;
     }
     var ok = !!webToken();
     if (ov) ov.style.display = ok ? 'none' : 'flex';
     if (lb) lb.style.display = ok ? '' : 'none';
+    applyRoleUI();
   }
   function tryLogin() {
     /* Login diperiksa SERVER Google (kedua edisi): username/kata sandi
@@ -1336,7 +1353,7 @@ if (typeof module !== 'undefined' && module.exports) {
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (res && res.ok && res.token) {
-          try { store.set(TOKENKEY, res.token); } catch (e) {}
+          try { store.set(SESSIONKEY, JSON.stringify({ token: res.token, user: res.user || u, role: res.role || '' })); } catch (e) {}
           $('loginErr').textContent = '';
           $('inPass').value = '';
           refreshAuthGate();
@@ -1356,9 +1373,31 @@ if (typeof module !== 'undefined' && module.exports) {
       return;
     }
     var t = webToken();
-    try { store.remove(TOKENKEY); } catch (e) {}
+    try { store.remove(TOKENKEY); store.remove(SESSIONKEY); } catch (e) {}
     if (t) { try { fetch(BRIDGE_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'logout', token: t }) }).catch(function () {}); } catch (e) {} }
     location.reload();
+  }
+
+  function pwdStatus(t) { var s = $('pwdStatus'); if (s) s.textContent = t; }
+  function doChangePass() {
+    var oldP = $('inOldPass').value, n1 = $('inNewPass').value, n2 = $('inNewPass2').value;
+    if (!oldP || !n1) { pwdStatus('Isi kata sandi lama dan kata sandi baru dulu.'); return; }
+    if (n1 !== n2) { pwdStatus('Kata sandi baru dan ulangannya tidak sama.'); return; }
+    if (n1.length < 6) { pwdStatus('Kata sandi baru minimal 6 karakter.'); return; }
+    pwdStatus('Menyimpan …');
+    var done = function (res) {
+      if (res && res.ok) {
+        $('inOldPass').value = ''; $('inNewPass').value = ''; $('inNewPass2').value = '';
+        pwdStatus('✅ Kata sandi berhasil diganti.');
+      } else if (res && res.error === 'SESI') { sesiExpired_(); }
+      else pwdStatus('❌ ' + ((res && res.error) || 'Gagal mengganti kata sandi.'));
+    };
+    var fail = function () { pwdStatus('❌ Tidak dapat terhubung ke server. Coba lagi.'); };
+    if (HOSTED) { google.script.run.withSuccessHandler(done).withFailureHandler(fail).changePassword(SESSION_TOKEN, oldP, n1); return; }
+    fetch(BRIDGE_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'changepass', token: webToken(), old: oldP, new: n1 }) })
+      .then(function (r) { return r.json(); })
+      .then(done)
+      .catch(fail);
   }
 
   /* ---------- Data Online (Google Sheets) ----------
@@ -1376,14 +1415,30 @@ if (typeof module !== 'undefined' && module.exports) {
      dengan token asli saat aplikasi dikirim setelah login. Di edisi GitHub
      tidak dipakai. */
   var SESSION_TOKEN = '__SESSION_TOKEN__';
+  var SESSION_USER = '__SESSION_USER__';
+  var SESSION_ROLE = '__SESSION_ROLE__';
   var APP_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyidWwpuB8nASD_xRDPeE1x2mp_fU8QdGjozFyfANOo_U-_BUUXu63jvhYHhAR5BeKfug/exec';
   var BRIDGE_URL = APP_EXEC_URL; /* jembatan yang sama untuk edisi web */
   var TOKENKEY = 'dataPerencanaanToken.v1';
-  function webToken() { try { return store.get(TOKENKEY) || ''; } catch (e) { return ''; } }
+  var SESSIONKEY = 'dataPerencanaanSession.v1';
+  function webSession() {
+    if (HOSTED) return { token: SESSION_TOKEN, user: SESSION_USER, role: SESSION_ROLE };
+    try { var s = JSON.parse(store.get(SESSIONKEY) || 'null'); if (s && s.token) return s; } catch (e) {}
+    return { token: '', user: '', role: '' };
+  }
+  function webToken() { return webSession().token; }
+  function currentUser() { return webSession().user || ''; }
+  function isAdmin() { return webSession().role === 'admin'; }
+  function applyRoleUI() {
+    var cc = $('cloudCard');
+    if (cc) cc.style.display = isAdmin() ? '' : 'none';
+    var w = $('whoAmI');
+    if (w) w.textContent = currentUser() ? ('👤 ' + currentUser() + (isAdmin() ? ' · admin' : '')) : '';
+  }
   function sesiExpired_() {
     cloudStatus('🔒 Sesi berakhir — silakan login ulang.');
     if (HOSTED) { setTimeout(backToLogin, 1200); return; }
-    try { store.remove(TOKENKEY); } catch (e) {}
+    try { store.remove(TOKENKEY); store.remove(SESSIONKEY); } catch (e) {}
     refreshAuthGate();
   }
   /* Kembali ke halaman login Google: arahkan bingkai ke alamat /exec
@@ -1857,10 +1912,7 @@ if (typeof module !== 'undefined' && module.exports) {
     var head2 = '<tr>';
     DISPLAY_COLS.forEach(function (dc) { if (dc.group) head2 += '<th class="num">' + esc(dc.sub) + '</th>'; });
     head2 += '</tr>';
-    var head3 = '<tr><th colspan="3" class="sub">tanggal data per kolom:</th>' + DISPLAY_COLS.map(function (dc) {
-      return '<th class="sub">' + esc(dateFor(dc)) + '</th>';
-    }).join('') + '</tr>';
-    var html = '<table class="data"><thead>' + head1 + head2 + head3 + '</thead><tbody>';
+    var html = '<table class="data"><thead>' + head1 + head2 + '</thead><tbody>';
     var sums = null;
     var anyComputed = false;
     var anyDerived = false;
@@ -1870,9 +1922,6 @@ if (typeof module !== 'undefined' && module.exports) {
     aoa.push([]);
     aoa.push(['NO', 'NAMA BARANG', 'KATEGORI BARANG', 'HARGA', 'Stok Awal Oktober 2026', 'Penerimaan', '', 'Pemakaian', '', 'Stok Akhir Instalasi Farmasi', '', 'Estimasi Kebutuhan', '']);
     aoa.push(['', '', '', '', '', 'Jumlah', 'Harga', 'Jumlah', 'Harga', 'Jumlah', 'Harga', 'Jumlah', 'Harga']);
-    var drow = ['', 'Tanggal data per kolom:', ''];
-    DISPLAY_COLS.forEach(function (dc) { drow.push(dateFor(dc)); });
-    aoa.push(drow);
     var secNo = 0; /* nomor urut dihitung per bagian dari urutan tampil */
     sheet.rows.forEach(function (rec) {
       if (rec.t === 'g') {
@@ -2224,6 +2273,7 @@ if (typeof module !== 'undefined' && module.exports) {
     $('inPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') tryLogin(); });
     $('inUser').addEventListener('keydown', function (e) { if (e.key === 'Enter') tryLogin(); });
     $('btnLogout').addEventListener('click', doLogout);
+    if ($('btnChangePass')) $('btnChangePass').addEventListener('click', doChangePass);
     refreshAuthGate();
     if (HOSTED && SESSION_TOKEN.indexOf('SESSION_TOKEN') < 0) { try { store.set('dataPerencanaanToken.v1', SESSION_TOKEN); } catch (e) {} }
     $('btnCloudConnect').addEventListener('click', cloudConnect);
