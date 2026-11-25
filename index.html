@@ -134,6 +134,8 @@
   .startCatTitle { font-size: 15px; font-weight: 700; color: #9fc3cc; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 2px; }
   #settingsOverlay { position: fixed; inset: 0; background: rgba(5, 30, 40, .5); backdrop-filter: blur(2px);
                   display: none; align-items: center; justify-content: center; padding: 18px; z-index: 9000; }
+  #formOverlay { position: fixed; inset: 0; background: rgba(5, 30, 40, .5); backdrop-filter: blur(2px);
+                  display: none; align-items: center; justify-content: center; padding: 18px; z-index: 9000; }
   .setBtn { width: 100%; margin-top: 10px; padding: 11px; font-size: 15px; font-weight: bold; border: none;
             border-radius: 10px; color: #fff; cursor: pointer; }
   #pwdStatus { color: #0e7490; font-size: 13px; min-height: 18px; margin: 8px 0 0; }
@@ -165,6 +167,7 @@
     #loginOverlay { display: none !important; }
     #startOverlay { display: none !important; }
     #settingsOverlay { display: none !important; }
+    #formOverlay { display: none !important; }
     #editOverlay { display: none !important; }
     #addOverlay { display: none !important; }
     #delOverlay { display: none !important; }
@@ -216,6 +219,19 @@
     <button type="button" id="btnChangePass" class="setBtn" style="background:#0e7490">💾 Simpan Kata Sandi</button>
     <button type="button" id="btnLogout" class="setBtn" style="background:#b91c1c">🔒 Keluar</button>
     <button type="button" id="btnCloseSettings" class="setBtn" style="background:#64748b">Tutup</button>
+  </div>
+</div>
+<div id="formOverlay">
+  <div class="loginCard">
+    <div class="loginIcon">📄</div>
+    <div class="loginTitle">Unduh Form Kosong</div>
+    <p class="loginSub">Form Excel berisi daftar obat perencanaan ini dengan kolom nilai yang dipilih masih kosong. Isi di Excel, lalu upload kembali ke aplikasi untuk disinkronkan.</p>
+    <button type="button" class="setBtn" data-form="STOK AWAL" style="background:#0e7490">Form Stok Awal</button>
+    <button type="button" class="setBtn" data-form="PENERIMAAN" style="background:#0e7490">Form Penerimaan</button>
+    <button type="button" class="setBtn" data-form="STOK AKHIR" style="background:#0e7490">Form Stok Akhir</button>
+    <button type="button" class="setBtn" data-form="ESTIMASI" style="background:#0e7490">Form Estimasi Kebutuhan</button>
+    <button type="button" class="setBtn" data-form="HARGA" style="background:#0e7490">Form Harga Satuan</button>
+    <button type="button" id="btnCloseForm" class="setBtn" style="background:#64748b">Tutup</button>
   </div>
 </div>
 <div id="startOverlay">
@@ -358,6 +374,7 @@
           <button type="button" id="modeLatest" class="tab">Data Terkini</button>
           <button type="button" id="modeCompare" class="tab">Berdampingan</button>
         </span>
+        <button type="button" id="btnForm" style="margin-left:auto">📄 Unduh Form Kosong</button>
       </div>
       <div class="rowflex">
         <span id="compareCtl" style="display:none">
@@ -1594,6 +1611,39 @@ if (typeof module !== 'undefined' && module.exports) {
   function startNew() { enterCategory(startCat || db.activeCat, true); }
   function openSettings() { var o = $('settingsOverlay'); if (o) o.style.display = 'flex'; pwdStatus(''); }
   function closeSettings() { var o = $('settingsOverlay'); if (o) o.style.display = 'none'; }
+  function openFormMenu() { var o = $('formOverlay'); if (o) o.style.display = 'flex'; }
+  function closeFormMenu() { var o = $('formOverlay'); if (o) o.style.display = 'none'; }
+
+  /* ---------- unduh form kosong (per kolom nilai) ---------- */
+  var FORM_DEFS = {
+    'STOK AWAL': { header: 'Stok Awal', file: 'Stok-Awal' },
+    'PENERIMAAN': { header: 'Penerimaan Jumlah', file: 'Penerimaan' },
+    'STOK AKHIR': { header: 'Stok Akhir Jumlah', file: 'Stok-Akhir' },
+    'ESTIMASI': { header: 'Estimasi Kebutuhan Jumlah', file: 'Estimasi-Kebutuhan' },
+    'HARGA': { header: 'Harga', file: 'Harga-Satuan' }
+  };
+  function downloadForm(key) {
+    var def = FORM_DEFS[key];
+    if (!def) return;
+    var sheet = masterSheet();
+    if (!sheet) return;
+    var aoa = [];
+    aoa.push(['FORM ' + def.header.toUpperCase() + ' — ' + sheet.name]);
+    aoa.push(['NO', 'NAMA BARANG', 'KATEGORI BARANG', def.header]);
+    var secNo = 0;
+    sheet.rows.forEach(function (rec) {
+      if (rec.t === 'g') { secNo = 0; aoa.push(['', normText(rec.name)]); return; }
+      if (rec.t === 'T') return;
+      secNo++;
+      aoa.push([secNo, normText(dispName(rec)), normText(dispGroup(rec)), '']);
+    });
+    var ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 5 }, { wch: 58 }, { wch: 16 }, { wch: 20 }];
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, def.file.slice(0, 31));
+    XLSX.writeFile(wb, 'Form-' + def.file + '-' + sheet.name + '.xlsx');
+    closeFormMenu();
+  }
   function pwdStatus(t) { var s = $('pwdStatus'); if (s) s.textContent = t; }
   function doChangePass() {
     var oldP = $('inOldPass').value, n1 = $('inNewPass').value, n2 = $('inNewPass2').value;
@@ -2498,6 +2548,12 @@ if (typeof module !== 'undefined' && module.exports) {
     if ($('startHello') && currentUser()) $('startHello').textContent = 'Halo, ' + currentUser() + ' — mau mulai dari mana?';
     if ($('btnCloseSettings')) $('btnCloseSettings').addEventListener('click', closeSettings);
     if ($('settingsOverlay')) $('settingsOverlay').addEventListener('click', function (e) { if (e.target === $('settingsOverlay')) closeSettings(); });
+    if ($('btnForm')) $('btnForm').addEventListener('click', openFormMenu);
+    if ($('btnCloseForm')) $('btnCloseForm').addEventListener('click', closeFormMenu);
+    if ($('formOverlay')) $('formOverlay').addEventListener('click', function (e) { if (e.target === $('formOverlay')) closeFormMenu(); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-form]'), function (b) {
+      b.addEventListener('click', function () { downloadForm(b.getAttribute('data-form')); });
+    });
     refreshAuthGate();
     if (HOSTED && SESSION_TOKEN.indexOf('SESSION_TOKEN') < 0) { try { store.set('dataPerencanaanToken.v1', SESSION_TOKEN); } catch (e) {} }
     $('btnCloudConnect').addEventListener('click', cloudConnect);
