@@ -366,6 +366,7 @@
           <label for="selDateB">Tanggal Baru:</label> <select id="selDateB"></select>
         </span>
         <span id="onlyChangedWrap" style="display:none"><label><input type="checkbox" id="chkChanged"> Hanya yang berubah</label></span>
+        <span><label><input type="checkbox" id="chkEmpty"> Hanya yang kosong</label></span>
         <span><label for="inSearch">Cari:</label> <input type="search" id="inSearch" placeholder="nama barang..."></span>
         <button type="button" id="btnPrint">🖨️ Cetak</button>
         <button type="button" id="btnExcel">⬇️ Unduh Excel</button>
@@ -1433,7 +1434,7 @@ if (typeof module !== 'undefined' && module.exports) {
     save(); render();
   }
 
-  var ui = { sheet: 0, mode: 'latest', col: '', dateA: '', dateB: '', q: '', onlyChanged: false };
+  var ui = { sheet: 0, mode: 'latest', col: '', dateA: '', dateB: '', q: '', onlyChanged: false, onlyEmpty: false };
   var exportData = null; /* {filename, sheetName, aoa} untuk tombol Unduh Excel */
 
   function $(id) { return document.getElementById(id); }
@@ -2149,25 +2150,28 @@ if (typeof module !== 'undefined' && module.exports) {
       }
       if (!sums) sums = DISPLAY_COLS.map(function () { return null; });
       secNo++;
-      html += '<tr data-name="' + esc(normKey(dispName(rec))) + '"><td>' + esc(fmtNum(secNo)) + '</td><td class="editable nameCell" data-editname="' + rec.id + '" title="Klik untuk mengubah nama obat">' + esc(normText(dispName(rec))) + (rec.added ? ' <span class="newBadge">BARU</span>' : '') + ' <button type="button" class="delBtn noprint" data-delrow="' + rec.id + '" title="Hapus baris obat ini dari perencanaan ini">🗑</button></td><td class="editable grpCell" data-editgrp="' + rec.id + '" title="Klik untuk mengubah kategori barang">' + esc(normText(dispGroup(rec))) + '</td>';
+      var headCells = '<td>' + esc(fmtNum(secNo)) + '</td><td class="editable nameCell" data-editname="' + rec.id + '" title="Klik untuk mengubah nama obat">' + esc(normText(dispName(rec))) + (rec.added ? ' <span class="newBadge">BARU</span>' : '') + ' <button type="button" class="delBtn noprint" data-delrow="' + rec.id + '" title="Hapus baris obat ini dari perencanaan ini">🗑</button></td><td class="editable grpCell" data-editgrp="' + rec.id + '" title="Klik untuk mengubah kategori barang">' + esc(normText(dispGroup(rec))) + '</td>';
+      var cellsHtml = '';
+      var rowEmpty = true; /* kosong = semua kolom nilai pada baris ini belum terisi */
       var xrow = [secNo, normText(dispName(rec)), normText(dispGroup(rec))];
       DISPLAY_COLS.forEach(function (dc, i) {
         var v = cellVal(dc, rec.id);
         var n = toNum(v);
+        if (v != null && String(v).trim() !== '') rowEmpty = false;
         if (n != null) sums[i] = (sums[i] || 0) + n;
         if (dc.computed) {
           if (v != null) anyComputed = true;
-          html += '<td class="num calc" title="Dihitung otomatis: Pemakaian = Stok Awal + Penerimaan − Stok Akhir Instalasi Farmasi (hasil minus ditampilkan tanpa tanda minus); Harga = Jumlah × Harga satuan">' + (v != null ? esc(fmtNum(v)) : '') + '</td>';
+          cellsHtml += '<td class="num calc" title="Dihitung otomatis: Pemakaian = Stok Awal + Penerimaan − Stok Akhir Instalasi Farmasi (hasil minus ditampilkan tanpa tanda minus); Harga = Jumlah × Harga satuan">' + (v != null ? esc(fmtNum(v)) : '') + '</td>';
         } else {
           var e = ent(dc.canon, rec.id);
           if (e && e.computed) anyDerived = true;
           if (e && e.man) anyMan = true;
           var cls = 'num editable' + (e && e.man ? ' man' : '');
-          html += '<td class="' + cls + '" data-editval="' + rec.id + '|' + esc(dc.canon) + '" title="' + (derivedQtyCanon(dc.canon) ? 'Otomatis: Jumlah × Harga satuan' : 'Klik untuk mengubah nilai') + '">' + (e ? esc(fmtNum(e.v)) : '') + '</td>';
+          cellsHtml += '<td class="' + cls + '" data-editval="' + rec.id + '|' + esc(dc.canon) + '" title="' + (derivedQtyCanon(dc.canon) ? 'Otomatis: Jumlah × Harga satuan' : 'Klik untuk mengubah nilai') + '">' + (e ? esc(fmtNum(e.v)) : '') + '</td>';
         }
         xrow.push(n != null ? n : (v == null ? '' : v));
       });
-      html += '</tr>';
+      html += '<tr data-name="' + esc(normKey(dispName(rec))) + '" data-empty="' + (rowEmpty ? '1' : '0') + '">' + headCells + cellsHtml + '</tr>';
       aoa.push(xrow);
     });
     html += '</tbody></table>';
@@ -2252,11 +2256,12 @@ if (typeof module !== 'undefined' && module.exports) {
       if (na != null && nb != null) changed = na !== nb;
       else changed = normKey(va) !== normKey(vb);
       var d = (na != null && nb != null) ? nb - na : null;
+      var rowEmpty = (va == null || va === '') && (vb == null || vb === '');
       secNo++;
       var xrow = [secNo, normText(dispName(rec)), na != null ? na : (va == null ? '' : va), nb != null ? nb : (vb == null ? '' : vb)];
       if (numeric) xrow.push(d != null ? d : '');
       aoa.push(xrow);
-      html += '<tr data-name="' + esc(normKey(dispName(rec))) + '" data-changed="' + (changed ? '1' : '0') + '" class="' + (changed ? 'chg' : '') + '">' +
+      html += '<tr data-name="' + esc(normKey(dispName(rec))) + '" data-changed="' + (changed ? '1' : '0') + '" data-empty="' + (rowEmpty ? '1' : '0') + '" class="' + (changed ? 'chg' : '') + '">' +
         '<td>' + esc(fmtNum(secNo)) + '</td><td>' + esc(normText(dispName(rec))) + (rec.added ? ' <span class="newBadge">BARU</span>' : '') + '</td>' +
         '<td class="' + (numeric ? 'num' : '') + '">' + esc(fmtNum(va)) + '</td>' +
         '<td class="' + (numeric ? 'num' : '') + '">' + esc(fmtNum(vb)) + '</td>' +
@@ -2416,26 +2421,28 @@ if (typeof module !== 'undefined' && module.exports) {
 
   function applyFilter() {
     var q = normKey(ui.q);
+    var active = q || (ui.mode === 'compare' && ui.onlyChanged) || ui.onlyEmpty;
     var rows = document.querySelectorAll('#tableWrap tbody tr');
     rows.forEach(function (tr) { tr.style.display = ''; });
-    if (q || (ui.mode === 'compare' && ui.onlyChanged)) {
+    if (active) {
       rows.forEach(function (tr) {
         var nm = tr.getAttribute('data-name');
         if (nm == null) return;
         var hide = false;
         if (q && nm.indexOf(q) < 0) hide = true;
         if (ui.mode === 'compare' && ui.onlyChanged && tr.getAttribute('data-changed') !== '1') hide = true;
+        if (ui.onlyEmpty && tr.getAttribute('data-empty') !== '1') hide = true;
         if (hide) tr.style.display = 'none';
       });
     }
     var lastGrp = null, grpHas = false;
     rows.forEach(function (tr) {
       if (tr.className.indexOf('grp') >= 0) {
-        if (lastGrp && !grpHas && (q || (ui.mode === 'compare' && ui.onlyChanged))) lastGrp.style.display = 'none';
+        if (lastGrp && !grpHas && active) lastGrp.style.display = 'none';
         lastGrp = tr; grpHas = false;
       } else if (tr.getAttribute('data-name') != null && tr.style.display !== 'none') grpHas = true;
     });
-    if (lastGrp && !grpHas && (q || (ui.mode === 'compare' && ui.onlyChanged))) lastGrp.style.display = 'none';
+    if (lastGrp && !grpHas && active) lastGrp.style.display = 'none';
   }
 
   /* ---------- init ---------- */
@@ -2463,6 +2470,7 @@ if (typeof module !== 'undefined' && module.exports) {
     $('selDateB').addEventListener('change', function () { ui.dateB = $('selDateB').value; render(); });
     $('inSearch').addEventListener('input', function () { ui.q = $('inSearch').value; applyFilter(); });
     $('chkChanged').addEventListener('change', function () { ui.onlyChanged = $('chkChanged').checked; applyFilter(); });
+    $('chkEmpty').addEventListener('change', function () { ui.onlyEmpty = $('chkEmpty').checked; applyFilter(); });
     $('btnPrint').addEventListener('click', function () { window.print(); });
     $('editOk').addEventListener('click', function () { closeEditDialog($('editInput').value); });
     $('editCancel').addEventListener('click', function () { closeEditDialog(null); });
